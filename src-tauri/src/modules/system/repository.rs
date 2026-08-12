@@ -11,7 +11,7 @@ pub struct DbStatus {
 pub struct SystemRepository;
 
 impl SystemRepository {
-    /// Checks the current database connection health via the Singleton manager.
+    /// Consulta el estado de salud de la conexión a la base de datos a través del administrador Singleton.
     pub fn get_db_status() -> DbResult<DbStatus> {
         let db = DbManager::global()?;
         let conn = db.get_connection()?;
@@ -21,8 +21,8 @@ impl SystemRepository {
 
         Ok(DbStatus {
             is_connected: true,
-            status_message: format!("SQLite Singleton Connection Active. Status: {}", status),
-            database_path: "app.db".to_string(),
+            status_message: format!("Conexión Singleton de SQLite Activa. Estado: {}", status),
+            database_path: "dnd_app.db".to_string(),
         })
     }
 }

@@ -1,17 +1,17 @@
 use rusqlite::Connection;
 use crate::modules::database::error::DbResult;
 
-/// Runs initial database migrations and configures SQLite PRAGMAs.
-/// Guarantees that essential system tables are initialized cleanly on app startup.
+/// Ejecuta las migraciones iniciales de la base de datos y configura los PRAGMAs de SQLite.
+/// Garantiza que las tablas del sistema y de dominio se creen de forma limpia al iniciar la aplicación.
 pub fn run_migrations(conn: &Connection) -> DbResult<()> {
-    // Enable Foreign Key constraints and Write-Ahead Logging (WAL) mode for performance and concurrency
+    // Habilitar restricciones de Clave Foránea y modo Write-Ahead Logging (WAL) para alto rendimiento y concurrencia
     conn.execute_batch(
         "
         PRAGMA foreign_keys = ON;
         PRAGMA journal_mode = WAL;
         PRAGMA synchronous = NORMAL;
 
-        -- System Metadata Tables
+        -- Tablas de Metadatos del Sistema
         CREATE TABLE IF NOT EXISTS system_migrations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             version INTEGER NOT NULL UNIQUE,
@@ -95,7 +95,7 @@ pub fn run_migrations(conn: &Connection) -> DbResult<()> {
         "
     )?;
 
-    // Insert or update initial system initialization timestamp
+    // Insertar o actualizar la marca de tiempo de inicialización del sistema
     conn.execute(
         "INSERT OR REPLACE INTO system_info (key, value, updated_at) VALUES ('app_status', 'initialized', CURRENT_TIMESTAMP)",
         [],
@@ -103,4 +103,3 @@ pub fn run_migrations(conn: &Connection) -> DbResult<()> {
 
     Ok(())
 }
-

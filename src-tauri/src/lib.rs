@@ -5,7 +5,7 @@ use crate::modules::database::DbManager;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+    format!("¡Hola, {}! ¡Has sido saludado desde Rust!", name)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -13,7 +13,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Resolve app data directory for SQLite database storage
+            // Resolver el directorio de datos de la aplicación para almacenar la base de datos SQLite
             let app_dir = app
                 .path()
                 .app_data_dir()
@@ -21,11 +21,11 @@ pub fn run() {
 
             let db_path = app_dir.join("dnd_app.db");
 
-            // Initialize SQLite Database Singleton instance from the database module
+            // Inicializar la instancia Singleton del gestor de la base de datos SQLite
             let db_manager = DbManager::init(&db_path)
                 .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
 
-            // Attach DbManager to Tauri state for dependency injection if needed
+            // Adjuntar DbManager al estado administrado de Tauri para inyección de dependencias
             app.manage(db_manager);
 
             Ok(())
@@ -35,5 +35,5 @@ pub fn run() {
             modules::system::commands::check_db_connection,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error al ejecutar la aplicación tauri");
 }

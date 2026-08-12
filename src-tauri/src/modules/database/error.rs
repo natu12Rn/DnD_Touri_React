@@ -1,27 +1,27 @@
 use thiserror::Error;
 
-/// Centralized database error type for clean backend error handling.
-/// Prevents panics and ensures all database errors are cleanly propagated.
+/// Tipo de error centralizado de base de datos para un manejo de errores limpio en el backend.
+/// Previene panics y garantiza que todos los errores de base de datos se propaguen correctamente.
 #[derive(Debug, Error)]
 pub enum DbError {
-    #[error("Database pool error: {0}")]
+    #[error("Error en el pool de conexiones: {0}")]
     Pool(#[from] r2d2::Error),
 
-    #[error("SQLite error: {0}")]
+    #[error("Error de SQLite: {0}")]
     Sqlite(#[from] rusqlite::Error),
 
-    #[error("Database connection not initialized")]
+    #[error("La conexión a la base de datos no ha sido inicializada")]
     NotInitialized,
 
-    #[error("Migration error: {0}")]
+    #[error("Error de migración: {0}")]
     Migration(String),
 
-    #[error("IO error: {0}")]
+    #[error("Error de entrada/salida (IO): {0}")]
     Io(#[from] std::io::Error),
 }
 
-// Convert DbError into String for Tauri IPC commands.
-// Tauri commands require serializable or String-convertible error types.
+// Convierte DbError en String para los comandos de Tauri IPC.
+// Los comandos IPC de Tauri requieren tipos de error serializables o convertibles a String.
 impl From<DbError> for String {
     fn from(error: DbError) -> Self {
         error.to_string()

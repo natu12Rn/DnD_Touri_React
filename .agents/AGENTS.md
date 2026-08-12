@@ -34,6 +34,9 @@ This document contains project guidelines, code standards, design principles, an
   - Using `.unwrap()` or `.expect()` in production logic inside `src-tauri` is strictly prohibited.
   - Functions in Rust must always return the `Result<T, E>` type.
   - Backend errors must be cleanly caught and intercepted by React to display user-facing UI notifications, preventing silent crashes.
+- **Documentación de Código en Español**:
+  - Todos los comentarios de código (`//`), bloques de documentación de Rust (`///` o `/** */`) y docstrings redactados dentro del código fuente DEBEN estar estrictamente redactados en idioma español.
+
 
 ---
 
