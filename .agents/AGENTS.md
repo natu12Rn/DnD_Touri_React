@@ -21,8 +21,17 @@ This document contains project guidelines, code standards, design principles, an
 - **Strong Typing & Interfaces**:
   - The use of the generic `any` type in TypeScript is strictly prohibited. Everything must be explicitly typed.
   - Communication between the frontend and backend via Tauri commands (`invoke`) requires explicit matching interfaces across both layers.
+- **Modular Backend Architecture (`src-tauri/src/modules/`)**:
+  - The Rust backend MUST strictly adhere to a domain-driven Modular Architecture.
+  - All feature modules (e.g. `system`, `characters`, `campaigns`) must reside in `src-tauri/src/modules/<feature_name>/` and maintain clean layered separation:
+    - **IPC Commands (Controller)**: Handles requests from React and input validation.
+    - **Repository / Service (Domain)**: Handles business logic and data access.
+  - Core database infrastructure MUST reside inside `src-tauri/src/modules/database/`.
+- **SQLite Database Singleton**:
+  - All database access MUST use the thread-safe `DbManager` Singleton pattern (`DbManager::global()`) powered by `r2d2` connection pooling to prevent creating redundant database connections or encountering SQLite lock issues.
+  - Database initialization must configure SQLite PRAGMAs (`journal_mode = WAL`, `foreign_keys = ON`, `synchronous = NORMAL`).
 - **Error Handling (Rust & React)**:
-  - Using `.unwrap()` in production code inside the `src-tauri` directory is strictly prohibited.
+  - Using `.unwrap()` or `.expect()` in production logic inside `src-tauri` is strictly prohibited.
   - Functions in Rust must always return the `Result<T, E>` type.
   - Backend errors must be cleanly caught and intercepted by React to display user-facing UI notifications, preventing silent crashes.
 

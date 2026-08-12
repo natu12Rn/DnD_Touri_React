@@ -80,7 +80,13 @@ dndDesktopApp/
 │   ├── AGENTS.md           # Reglas y estándares del Agente de IA
 │   └── STYLE.md            # Sistema de diseño, tokens Tailwind y componentes Bento
 ├── src/                    # 🎨 UI de React + TypeScript (Interfaz de usuario)
-├── src-tauri/              # 🦀 Rust Backend (Tauri, sistema de archivos y lógica)
+├── src-tauri/              # 🦀 Rust Backend (Tauri, Arquitectura Modular y SQLite Singleton)
+│   ├── src/
+│   │   ├── lib.rs          # Punto de entrada de Tauri e inicializador del sistema
+│   │   ├── main.rs         # Ejecutable principal
+│   │   └── modules/        # 📦 Arquitectura Modular del Backend
+│   │       ├── database/   # 🗄️ Singleton de SQLite (Connection Pool, Migraciones, DbError)
+│   │       └── system/     # ⚙️ Módulo de prueba y estado del sistema
 ├── index.html              # Punto de entrada HTML
 ├── package.json            # Configuración del paquete y scripts pnpm
 ├── tsconfig.json           # Configuración de TypeScript
