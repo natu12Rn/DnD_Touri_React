@@ -92,6 +92,16 @@ pub fn run_migrations(conn: &Connection) -> DbResult<()> {
             FOREIGN KEY (idTransactions) REFERENCES transactions(idTransactions) ON DELETE CASCADE,
             FOREIGN KEY (idCharacter) REFERENCES character(idCharacter) ON DELETE CASCADE
         );
+
+        -- 7. TABLA BLUEPRINTS (Planos y Modelado Arquitectónico 2D)
+        CREATE TABLE IF NOT EXISTS blueprints (
+            idBlueprint INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            gridSizeFt INTEGER DEFAULT 5,
+            geometryJson TEXT NOT NULL,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         "
     )?;
 

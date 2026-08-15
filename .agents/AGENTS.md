@@ -49,9 +49,51 @@ All visual designs, CSS architecture, color variables, typography, and component
 - **Design Tokens**: Standardized Tailwind palette, custom theme extensions, and CSS variables defined in [STYLE.md](file:///d:/User/Documents/Programacion/dndDesktopApp/.agents/STYLE.md).
 - **Layout Architecture**: Bento Grid style (`grid col-span-*`, `rounded-2xl`, `backdrop-blur-xl`, `border-white/10`).
 - **Typography**: Inter (UI Body), Cinzel (Fantasy Headings), Fira Code (Monospace/Stats).
+- **Toast Notifications Placement**: Las notificaciones Toast deben posicionarse estrictamente en esquinas libres de la interfaz (esquina inferior derecha `bottom-5 right-5` o inferior izquierda `bottom-5 left-5`), garantizando que jamás se superpongan a menús superiores, modales de métricas o paneles de interacción activa.
+- **Anti-Redundancia en UI/UX**: Se prohíbe terminantemente la inclusión de elementos interactivos redundantes o duplicados (por ejemplo: botones secundarios "Abrir" o "Seleccionar" en tarjetas/filas que ya son completamente clickeables por sí mismas). Toda interacción principal debe ser directa, limpia y minimalista.
+
+
 
 ---
 
 ## 4. Agent Workflow & Rules
 
 - **Agent Commit Prohibition**: The AI agent **IS NOT ALLOWED** to perform `git commit` or create commits on any branch under any circumstances. Creating and managing commits is the exclusive responsibility of the user.
+
+---
+
+## 5. Backend Modules & API Reference (`src-tauri/src/modules/`)
+
+This section documents all registered backend modules, their public functions, and usage patterns.
+
+### A. Database Module (`modules::database`)
+Provides thread-safe, centralized SQLite connection management and migration runner.
+
+- **`DbManager::init<P: AsRef<Path>>(db_path: P) -> DbResult<DbManager>`**
+  - **Description**: Initializes the global `r2d2` SQLite connection pool Singleton, configures PRAGMAs (`WAL`, `foreign_keys = ON`), and runs database migrations.
+  - **Usage**:
+    ```rust
+    let db_manager = DbManager::init(&db_path)?;
+    ```
+- **`DbManager::global() -> DbResult<&'static DbManager>`**
+  - **Description**: Returns a static reference to the global `DbManager` Singleton instance.
+  - **Usage**:
+    ```rust
+    let db = DbManager::global()?;
+    let conn = db.get_connection()?;
+    ```
+- **`DbManager::get_connection(&self) -> DbResult<PooledConnection<SqliteConnectionManager>>`**
+  - **Description**: Obtains a thread-safe connection from the Singleton pool for database operations.
+- **`run_migrations(conn: &Connection) -> DbResult<()>`**
+  - **Description**: Configures SQLite PRAGMAs and creates system & domain tables (`race`, `character`, `attributes`, `wallet`, `transactions`, `movement`).
+
+---
+
+### B. System Module (`modules::system`)
+Provides system status verification and database health monitoring IPC commands.
+
+- **`SystemRepository::get_db_status() -> DbResult<DbStatus>`**
+  - **Description**: Queries `system_info` table to check database connection status.
+- **`check_db_connection() -> Result<DbStatus, String>`**
+  - **Description**: Tauri IPC command `#[tauri::command]` callable from React frontend via `invoke('check_db_connection')`.
+

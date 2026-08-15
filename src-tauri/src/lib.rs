@@ -33,6 +33,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             modules::system::commands::check_db_connection,
+            modules::blueprints::commands::create_blueprint,
+            modules::blueprints::commands::update_blueprint,
+            modules::blueprints::commands::get_blueprint_by_id,
+            modules::blueprints::commands::list_all_blueprints,
+            modules::blueprints::commands::delete_blueprint_by_id,
         ])
         .run(tauri::generate_context!())
         .expect("error al ejecutar la aplicación tauri");

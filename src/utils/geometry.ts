@@ -1,0 +1,267 @@
+import { Vertex, BuildingDefinition, SpaceType, ExpansionPreset } from '../types/blueprint';
+
+/** Configuración del motor de modelado ortogonal */
+export const CONFIG = {
+  gridSize: 40, // 40px = 1 casilla de 5x5 ft
+  cornerSize: 12,
+  feetPerCell: 5,
+  defaultBaseCells: 16, // Cuadros base del núcleo (16 cuadros = 20x20 ft)
+  colors: {
+    primary: '#f59e0b', // Acento ámbar D&D
+    primaryDark: '#d97706',
+    wall: '#f8fafc',
+    wallMain: '#fbbf24',
+    wallIntegrated: '#10b981', // Borde verde para perímetros internos integrados
+    wallIndependent: '#64748b', // Borde punteado para bloques independientes
+    fillPrimary: 'rgba(245, 158, 11, 0.14)',
+    fillIntegrated: 'rgba(16, 185, 129, 0.12)',
+    fillIndependent: 'rgba(100, 116, 139, 0.12)',
+    fillOverLimit: 'rgba(239, 68, 68, 0.25)',
+    gridMajor: 'rgba(212, 175, 55, 0.18)',
+    gridMinor: 'rgba(255, 255, 255, 0.04)',
+    text: '#94a3b8',
+    textHighlight: '#fbbf24',
+    handle: '#475569',
+    ghost: 'rgba(16, 185, 129, 0.35)',
+    ghostHover: '#10b981',
+  },
+};
+
+/** Catálogo de expansiones de espacio con sus costes específicos en EO */
+export const EXPANSIONS_CATALOG: Record<SpaceType, ExpansionPreset> = {
+  APRETADO: {
+    type: 'APRETADO',
+    name: 'Apretado',
+    additionalCells: 4,
+    costEO: 500,
+    dimFt: '10x10 ft',
+  },
+  ESPACIOSO: {
+    type: 'ESPACIOSO',
+    name: 'Espaciado',
+    additionalCells: 16,
+    costEO: 1000,
+    dimFt: '20x20 ft',
+  },
+  VASTO: {
+    type: 'VASTO',
+    name: 'Vasto',
+    additionalCells: 36,
+    costEO: 3000,
+    dimFt: '30x30 ft',
+  },
+};
+
+/** Catálogo oficial de las 38 edificaciones especiales con sus costes en EO */
+export const BUILDINGS_CATALOG: BuildingDefinition[] = [
+  // 1. Apretado (4 cuadrículas • 10x10 ft)
+  { id: 'aviario', name: 'Aviario', space: 'APRETADO', maxCells: 4, costEO: 5000, dimFt: '10x10 ft', color: '#38bdf8' },
+  { id: 'camara_meditacion', name: 'Cámara de Meditación', space: 'APRETADO', maxCells: 4, costEO: 13000, dimFt: '10x10 ft', color: '#818cf8' },
+  { id: 'relicario', name: 'Relicario', space: 'APRETADO', maxCells: 4, costEO: 13000, dimFt: '10x10 ft', color: '#c084fc' },
+
+  // 2. Espacioso (16 cuadrículas • 20x20 ft)
+  { id: 'almacen', name: 'Almacén', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#f59e0b' },
+  { id: 'archivo', name: 'Archivo', space: 'ESPACIOSO', maxCells: 16, costEO: 13000, dimFt: '20x20 ft', color: '#f97316' },
+  { id: 'armeria', name: 'Armería', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#ef4444' },
+  { id: 'biblioteca', name: 'Biblioteca', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#3b82f6' },
+  { id: 'camara_adivinacion', name: 'Cámara de Adivinación', space: 'ESPACIOSO', maxCells: 16, costEO: 9000, dimFt: '20x20 ft', color: '#a855f7' },
+  { id: 'circulo_teletransporte', name: 'Círculo de Teletransportación', space: 'ESPACIOSO', maxCells: 16, costEO: 9000, dimFt: '20x20 ft', color: '#06b6d4' },
+  { id: 'cuartel', name: 'Cuartel', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#eab308' },
+  { id: 'establo', name: 'Establo', space: 'ESPACIOSO', maxCells: 16, costEO: 9000, dimFt: '20x20 ft', color: '#d97706' },
+  { id: 'estudio_arcano', name: 'Estudio Arcano', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#8b5cf6' },
+  { id: 'fabrica_trampas', name: 'Fábrica de Trampas', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#64748b' },
+  { id: 'forja', name: 'Forja', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#f97316' },
+  { id: 'invernadero', name: 'Invernadero', space: 'ESPACIOSO', maxCells: 16, costEO: 9000, dimFt: '20x20 ft', color: '#22c55e' },
+  { id: 'jardin', name: 'Jardín', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#10b981' },
+  { id: 'laboratorio', name: 'Laboratorio', space: 'ESPACIOSO', maxCells: 16, costEO: 9000, dimFt: '20x20 ft', color: '#14b8a6' },
+  { id: 'motor_bastion_movil', name: 'Motor de Bastión Móvil', space: 'ESPACIOSO', maxCells: 16, costEO: 13000, dimFt: '20x20 ft', color: '#e11d48' },
+  { id: 'observatorio', name: 'Observatorio', space: 'ESPACIOSO', maxCells: 16, costEO: 13000, dimFt: '20x20 ft', color: '#6366f1' },
+  { id: 'portentorium', name: 'Portentorium', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#9333ea' },
+  { id: 'prision', name: 'Prisión', space: 'ESPACIOSO', maxCells: 16, costEO: 9000, dimFt: '20x20 ft', color: '#475569' },
+  { id: 'pub', name: 'Pub', space: 'ESPACIOSO', maxCells: 16, costEO: 13000, dimFt: '20x20 ft', color: '#d97706' },
+  { id: 'sacristia', name: 'Sacristía', space: 'ESPACIOSO', maxCells: 16, costEO: 9000, dimFt: '20x20 ft', color: '#fbbf24' },
+  { id: 'salon_tatuajes', name: 'Salón de Tatuajes', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#f43f5e' },
+  { id: 'sanctum', name: 'Sanctum', space: 'ESPACIOSO', maxCells: 16, costEO: 17000, dimFt: '20x20 ft', color: '#c084fc' },
+  { id: 'santuario', name: 'Santuario', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#e0e7ff' },
+  { id: 'scriptorium', name: 'Scriptorium', space: 'ESPACIOSO', maxCells: 16, costEO: 9000, dimFt: '20x20 ft', color: '#ca8a04' },
+  { id: 'taller', name: 'Taller', space: 'ESPACIOSO', maxCells: 16, costEO: 5000, dimFt: '20x20 ft', color: '#ea580c' },
+  { id: 'templo', name: 'Templo', space: 'ESPACIOSO', maxCells: 16, costEO: 13000, dimFt: '20x20 ft', color: '#fde047' },
+
+  // 3. Vasto (36 cuadrículas • 30x30 ft)
+  { id: 'casa_fieras', name: 'Casa de Fieras', space: 'VASTO', maxCells: 36, costEO: 13000, dimFt: '30x30 ft', color: '#ca8a04' },
+  { id: 'demiplano', name: 'Demiplano', space: 'VASTO', maxCells: 36, costEO: 17000, dimFt: '30x30 ft', color: '#a855f7' },
+  { id: 'mina', name: 'Mina', space: 'VASTO', maxCells: 36, costEO: 9000, dimFt: '30x30 ft', color: '#78716c' },
+  { id: 'posada', name: 'Posada', space: 'VASTO', maxCells: 36, costEO: 9000, dimFt: '30x30 ft', color: '#f59e0b' },
+  { id: 'sala_guerra', name: 'Sala de Guerra', space: 'VASTO', maxCells: 36, costEO: 17000, dimFt: '30x30 ft', color: '#dc2626' },
+  { id: 'sala_juegos', name: 'Sala de Juegos', space: 'VASTO', maxCells: 36, costEO: 9000, dimFt: '30x30 ft', color: '#ec4899' },
+  { id: 'salon_gremio', name: 'Salón de Gremio', space: 'VASTO', maxCells: 36, costEO: 17000, dimFt: '30x30 ft', color: '#6366f1' },
+  { id: 'teatro', name: 'Teatro', space: 'VASTO', maxCells: 36, costEO: 9000, dimFt: '30x30 ft', color: '#e11d48' },
+  { id: 'zona_entrenamiento', name: 'Zona de Entrenamiento', space: 'VASTO', maxCells: 36, costEO: 9000, dimFt: '30x30 ft', color: '#16a34a' },
+];
+
+/** Formateador amigable de valores EO (ej. 5.000 EO) */
+export function formatEO(val: number): string {
+  return `${val.toLocaleString('es-ES')} EO`;
+}
+
+/** Utilidades matemáticas y de cuadrícula */
+export const math = {
+  snap: (value: number, step: number = CONFIG.gridSize): number =>
+    Math.round(value / step) * step,
+
+  distance: (p1: Vertex, p2: Vertex): number =>
+    Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)),
+
+  /** Formatea la medida en pies de D&D (múltiplos de 5 ft) */
+  formatMeasure: (pixels: number): string => {
+    const cells = Math.round(pixels / CONFIG.gridSize);
+    return `${cells * CONFIG.feetPerCell} ft`;
+  },
+
+  /** Calcula el número de cuadrículas de 5x5 ft ocupadas usando la fórmula Shoelace */
+  calculateCellCount: (points: Vertex[]): number => {
+    const n = points.length;
+    if (n < 3) return 0;
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const curr = points[i];
+      const next = points[(i + 1) % n];
+      sum += curr.x * next.y - next.x * curr.y;
+    }
+    const areaPx2 = Math.abs(sum) / 2;
+    const cellAreaPx2 = CONFIG.gridSize * CONFIG.gridSize;
+    return Math.round(areaPx2 / cellAreaPx2);
+  },
+
+  /** Comprueba si un punto (x, y) se encuentra dentro de un polígono cerrado (Ray Casting) */
+  isPointInPolygon: (point: Vertex, polygon: Vertex[]): boolean => {
+    const { x, y } = point;
+    let inside = false;
+    const n = polygon.length;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = polygon[i].x;
+      const yi = polygon[i].y;
+      const xj = polygon[j].x;
+      const yj = polygon[j].y;
+
+      const intersect =
+        yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  },
+
+  /** Obtiene la caja delimitadora (Bounding Box) de un conjunto de puntos */
+  getBoundingBox: (points: Vertex[]): { minX: number; maxX: number; minY: number; maxY: number } => {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    points.forEach((p) => {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    });
+    return { minX, maxX, minY, maxY };
+  },
+
+  /**
+   * Comprueba si dos bloques se encuentran en proximidad inmediata o solapamiento
+   * para ejecutar la integración.
+   */
+  checkBlocksProximity: (
+    b1Points: Vertex[],
+    b2Points: Vertex[],
+    thresholdPx: number = CONFIG.gridSize
+  ): boolean => {
+    const bb1 = math.getBoundingBox(b1Points);
+    const bb2 = math.getBoundingBox(b2Points);
+
+    const isSeparatedX = bb1.maxX + thresholdPx < bb2.minX || bb2.maxX + thresholdPx < bb1.minX;
+    const isSeparatedY = bb1.maxY + thresholdPx < bb2.minY || bb2.maxY + thresholdPx < bb1.minY;
+    if (isSeparatedX || isSeparatedY) return false;
+
+    for (const p1 of b1Points) {
+      for (const p2 of b2Points) {
+        if (math.distance(p1, p2) <= thresholdPx * 1.05) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  },
+};
+
+/**
+ * Crea los vértices iniciales de un bloque cuadrado según su tipo de espacio.
+ */
+export function createInitialPointsForSpace(
+  space: SpaceType,
+  startX: number = 200,
+  startY: number = 200
+): Vertex[] {
+  let cellsSide = 4; // Por defecto Espacioso 4x4
+  if (space === 'APRETADO') cellsSide = 2; // 2x2 celdas = 4
+  else if (space === 'VASTO') cellsSide = 6; // 6x6 celdas = 36
+
+  const sidePx = cellsSide * CONFIG.gridSize;
+  return [
+    { x: startX, y: startY },
+    { x: startX + sidePx, y: startY },
+    { x: startX + sidePx, y: startY + sidePx },
+    { x: startX, y: startY + sidePx },
+  ];
+}
+
+/**
+ * Algoritmo para limpiar vértices redundantes si las paredes quedan en el mismo eje,
+ * preservando la paridad de polígonos ortogonales.
+ */
+export const simplifyPolygon = (points: Vertex[]): Vertex[] => {
+  let p = points.map((pt) => ({ ...pt }));
+  let changed = true;
+
+  while (changed && p.length > 4) {
+    changed = false;
+    const n = p.length;
+    for (let i = 0; i < n; i++) {
+      const next = (i + 1) % n;
+      if (Math.abs(p[i].x - p[next].x) < 1 && Math.abs(p[i].y - p[next].y) < 1) {
+        if (i === n - 1) {
+          p.pop();
+          p.shift();
+          const last = p.pop();
+          if (last) p.unshift(last);
+        } else {
+          p.splice(i, 2);
+        }
+        changed = true;
+        break;
+      }
+    }
+  }
+
+  if (p.length > 4) {
+    const cleaned: Vertex[] = [];
+    const len = p.length;
+    for (let i = 0; i < len; i++) {
+      const prev = p[(i - 1 + len) % len];
+      const curr = p[i];
+      const next = p[(i + 1) % len];
+
+      const isCollinearX = Math.abs(prev.y - curr.y) < 1 && Math.abs(curr.y - next.y) < 1;
+      const isCollinearY = Math.abs(prev.x - curr.x) < 1 && Math.abs(curr.x - next.x) < 1;
+
+      if (!isCollinearX && !isCollinearY) {
+        cleaned.push(curr);
+      }
+    }
+    if (cleaned.length >= 4 && cleaned.length % 2 === 0) {
+      return cleaned;
+    }
+  }
+
+  return p;
+};

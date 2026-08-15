@@ -10,6 +10,7 @@ This document defines the visual standards, design tokens, component rules, and 
 - **Layout Architecture**: **Bento Grid Style** (asymmetric, modular card grids with rounded corners, clean padding, inner borders, and high visual hierarchy).
 - **Theme & Aesthetics**: Modern dark mode desktop application combining sleek Bento UI card structures with subtle D&D / Tabletop fantasy elements (arcane gold glows, obsidian/slate dark surfaces, parchment stat accents).
 - **Desktop First (Tauri & React)**: Optimized for desktop viewports with fluid window scaling, custom draggable titlebars, split-screen Bento panels, and collapsible drawers.
+- **Principio Anti-Redundancia en la Interfaz**: Queda estrictamente prohibido incluir elementos interactivos redundantes o duplicados en el diseño visual (por ejemplo: botones secundarios como "Abrir" o "Seleccionar" dentro de filas o tarjetas que ya son interactivas y clickeables en su totalidad). Toda interacción principal debe ser directa y minimalista.
 
 ---
 
@@ -106,3 +107,13 @@ Tailwind colors and custom theme extensions:
 - **Titlebar Area**: Dedicated top header bar with `select-none` and Tauri drag regions (`data-tauri-drag-region`).
 - **Scrollbars**: Customized thin, dark scrollbars (`scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent`).
 - **No Overflow Leaks**: Application root container uses `h-screen w-screen overflow-hidden` with scrollable Bento grid content areas.
+
+---
+
+## 8. Toast Notifications Placement & Design Standards
+
+- **Ubicación No Invasiva**: Las notificaciones Toast deben posicionarse estrictamente en esquinas libres de la interfaz (esquina inferior derecha `bottom-5 right-5` o inferior izquierda `bottom-5 left-5`), garantizando que **jamás se superpongan a menús superiores, selectores desplegables, modales de métricas o paneles de interacción activa**.
+- **Diseño Ultra-Compacto y Conciso**:
+  - Contenedor compacto (`px-3 py-2`, `max-w-xs`), tipografía `text-xs` y backdrop blur (`backdrop-blur-xl`).
+  - Textos breves, directos y esenciales (ej. *"Biblioteca integrada correctamente."*, *"Expansión aplicada."*, *"Cambios guardados."*).
+  - Duración breve (aproximadamente 3 segundos) con animación suave de entrada y apilamiento invertido (`flex-col-reverse`).
