@@ -21,7 +21,7 @@ import {
   createInitialPointsForSpace,
   math,
 } from '../../utils/geometry';
-import { X, Trash2, Calendar, FolderOpen, FilePlus, FolderKanban, Check } from 'lucide-react';
+import { X, Trash2, Calendar, FilePlus, FolderKanban, Check } from 'lucide-react';
 
 interface BlueprintRecordBackend {
   id_blueprint: number;
@@ -134,7 +134,7 @@ export const BlueprintEditor: React.FC = () => {
   /** Cambia el espacio inicial del núcleo y actualiza la representación visual en el canvas */
   const handleChangeBaseSpaceType = (type: SpaceType) => {
     if (hasAssociatedElements) {
-      addToast('No se puede cambiar el espacio con edificios asociados.', 'warning');
+      addToast('No se puede cambiar el espacio con elementos asociados.', 'warning');
       return;
     }
 
@@ -155,7 +155,7 @@ export const BlueprintEditor: React.FC = () => {
     addToast(`Espacio del núcleo: ${preset.name}.`, 'info');
   };
 
-  /** Incorpora una nueva edificación especial del catálogo */
+  /** Incorpora una nueva edificación especial del catálogo como bloque independiente */
   const handleAddBuilding = (building: BuildingDefinition) => {
     const totalCount =
       bastion.mainBlock.integratedBuildings.length + bastion.independentBuildings.length;
@@ -237,13 +237,21 @@ export const BlueprintEditor: React.FC = () => {
       const target = prev.independentBuildings.find((b) => b.id === buildingId);
       if (!target) return prev;
 
+      // Calcular posición relativa respecto al primer vértice del núcleo
+      const refPoint = prev.mainBlock.points[0] || { x: 0, y: 0 };
+      const relativePosition = {
+        x: target.points[0].x - refPoint.x,
+        y: target.points[0].y - refPoint.y,
+      };
+
       const integratedTarget: SpecialBuildingBlock = {
         ...target,
         parentId: prev.mainBlock.id,
         isIntegrated: true,
+        relativePosition,
       };
 
-      addToast(`${target.name} integrada correctamente.`, 'success');
+      addToast(`${target.name} integrada al Núcleo.`, 'success');
 
       return {
         ...prev,
@@ -273,6 +281,7 @@ export const BlueprintEditor: React.FC = () => {
       ...target,
       parentId: null,
       isIntegrated: false,
+      relativePosition: undefined,
     };
 
     setBastion((prev) => ({
@@ -284,7 +293,7 @@ export const BlueprintEditor: React.FC = () => {
       independentBuildings: [...prev.independentBuildings, independentTarget],
     }));
 
-    addToast(`${target.name} desacoplada.`, 'warning');
+    addToast(`${target.name} desacoplada como bloque independiente.`, 'warning');
   };
 
   /** Actualiza los puntos del bloque principal y sus hijos sincronizados */
@@ -292,17 +301,28 @@ export const BlueprintEditor: React.FC = () => {
     newPoints: Vertex[],
     updatedIntegratedBuildings: SpecialBuildingBlock[]
   ) => {
+    // Validar que los hijos no queden fuera del polígono
+    const refPoint = newPoints[0] || { x: 0, y: 0 };
+
+    const validatedChildren = updatedIntegratedBuildings.map((child) => ({
+      ...child,
+      relativePosition: {
+        x: child.points[0].x - refPoint.x,
+        y: child.points[0].y - refPoint.y,
+      },
+    }));
+
     setBastion((prev) => ({
       ...prev,
       mainBlock: {
         ...prev.mainBlock,
         points: newPoints,
-        integratedBuildings: updatedIntegratedBuildings,
+        integratedBuildings: validatedChildren,
       },
     }));
   };
 
-  /** Actualiza los puntos de una edificación especial */
+  /** Actualiza los puntos de una edificación especial (integrada o independiente) */
   const handleUpdateBuildingPoints = (
     buildingId: string,
     isIntegrated: boolean,
@@ -310,12 +330,22 @@ export const BlueprintEditor: React.FC = () => {
   ) => {
     setBastion((prev) => {
       if (isIntegrated) {
+        const refPoint = prev.mainBlock.points[0] || { x: 0, y: 0 };
         return {
           ...prev,
           mainBlock: {
             ...prev.mainBlock,
             integratedBuildings: prev.mainBlock.integratedBuildings.map((b) =>
-              b.id === buildingId ? { ...b, points: newPoints } : b
+              b.id === buildingId
+                ? {
+                    ...b,
+                    points: newPoints,
+                    relativePosition: {
+                      x: newPoints[0].x - refPoint.x,
+                      y: newPoints[0].y - refPoint.y,
+                    },
+                  }
+                : b
             ),
           },
         };
@@ -330,7 +360,7 @@ export const BlueprintEditor: React.FC = () => {
     });
   };
 
-  /** Elimina una edificación validando reducción de espacio si era hijo integrado */
+  /** Elimina una edificación por completo */
   const handleDeleteBuilding = (id: string, isIntegrated: boolean) => {
     if (isIntegrated) {
       const target = bastion.mainBlock.integratedBuildings.find((b) => b.id === id);
@@ -480,32 +510,30 @@ export const BlueprintEditor: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col w-full h-screen bg-[#0b0e14] text-slate-100 overflow-hidden font-sans">
-      {/* 1. Sistema de Notificaciones Toast Compacto */}
-      <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
-
-      {/* 2. Barra de Herramientas Superior con Botones de Iconos y Tooltips */}
+    <div className="flex flex-col w-full h-full bg-[#0f1117] text-slate-100 select-none overflow-hidden font-sans">
+      {/* 1. Selector Superior de Edificaciones y Filtros de Espacio */}
       <BlueprintToolbar
-        bastionName={bastion.name}
-        isEditingSaved={!!bastion.idBlueprint}
-        baseSpaceType={bastion.mainBlock.baseSpaceType}
-        isBaseSpaceDisabled={hasAssociatedElements}
-        onChangeBaseSpaceType={handleChangeBaseSpaceType}
-        onChangeBastionName={(name) => setBastion((prev) => ({ ...prev, name }))}
+        currentBaseSpaceType={bastion.mainBlock.baseSpaceType}
+        hasAssociatedElements={hasAssociatedElements}
+        onSelectBaseSpaceType={handleChangeBaseSpaceType}
         onAddBuilding={handleAddBuilding}
         onAddExpansion={handleAddExpansion}
+        blueprintName={bastion.name}
+        onUpdateBlueprintName={(newName) =>
+          setBastion((prev) => ({ ...prev, name: newName }))
+        }
         onReloadBastion={handleReloadBastion}
         onSaveBastion={handleSaveBastion}
-        onOpenPlansManagement={() => {
+        onOpenPlansModal={() => {
           fetchSavedBlueprints();
           setShowPlansModal(true);
         }}
         isSaving={isSaving}
       />
 
-      {/* 3. Área Central: Lienzo Canvas y Modal de Métricas Derecha */}
+      {/* 2. Área Central: Lienzo Canvas y Modal de Métricas Derecha */}
       <div className="flex-1 relative w-full h-full overflow-hidden">
-        {/* Lienzo Canvas 2D */}
+        {/* Lienzo Canvas 2D con modelo de anclajes ortogonales completos */}
         <BlueprintCanvas
           mainBlock={bastion.mainBlock}
           independentBuildings={bastion.independentBuildings}
@@ -514,7 +542,6 @@ export const BlueprintEditor: React.FC = () => {
           onUpdateMainPoints={handleUpdateMainPoints}
           onUpdateBuildingPoints={handleUpdateBuildingPoints}
           onIntegrateBuilding={handleIntegrateBuilding}
-          onDeintegrateBuilding={handleDeintegrateBuilding}
           onExceedMainLimit={handleExceedMainLimit}
         />
 
@@ -525,11 +552,12 @@ export const BlueprintEditor: React.FC = () => {
           selectedId={selectedId}
           onSelectElement={setSelectedId}
           onDeleteBuilding={handleDeleteBuilding}
+          onDeintegrateBuilding={handleDeintegrateBuilding}
           onRemoveExpansion={handleRemoveExpansion}
         />
       </div>
 
-      {/* 4. Modal Centralizada de "Gestión de Planos" con Iconos y Tooltips (Portal) */}
+      {/* 3. Modal Centralizada de "Gestión de Planos" (Portal) */}
       {showPlansModal &&
         createPortal(
           <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200">
@@ -539,78 +567,76 @@ export const BlueprintEditor: React.FC = () => {
                 <div className="flex items-center gap-2.5">
                   <FolderKanban className="text-amber-400" size={22} />
                   <div>
-                    <h3 className="font-serif text-base font-bold text-amber-400">
+                    <h3 className="font-serif text-lg font-bold text-amber-400">
                       Gestión de Planos
                     </h3>
-                    <p className="text-[11px] text-slate-400">
-                      Crea, selecciona, abre o elimina planos de tu proyecto
+                    <p className="text-xs text-slate-400 font-sans">
+                      Administra y cambia entre tus planos guardados en SQLite
                     </p>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleCreateNewBlueprint()}
-                    title="Crear un nuevo plano independiente en blanco"
-                    className="p-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 transition-all shadow-md active:scale-95 flex items-center gap-1.5 text-xs font-bold"
-                  >
-                    <FilePlus size={15} />
-                    <span>Nuevo Plano</span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowPlansModal(false)}
-                    title="Cerrar"
-                    className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-white/5 transition-colors"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
+                <button
+                  onClick={() => setShowPlansModal(false)}
+                  className="text-slate-400 hover:text-slate-200 p-1.5 rounded-xl hover:bg-slate-800 transition-all"
+                >
+                  <X size={18} />
+                </button>
               </div>
 
-              {/* Lista de Planos Almacenados */}
-              <div className="p-5 overflow-y-auto space-y-2.5 flex-1 scrollbar-thin scrollbar-thumb-slate-700">
+              {/* Botón Acción Rápida: Crear Nuevo Plano */}
+              <div className="p-4 border-b border-white/5 bg-slate-900/40">
+                <button
+                  onClick={() => handleCreateNewBlueprint()}
+                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-sans font-bold text-sm shadow-lg shadow-amber-500/20 transition-all active:scale-98"
+                >
+                  <FilePlus size={18} />
+                  <span>+ Crear Nuevo Plano en Blanco</span>
+                </button>
+              </div>
+
+              {/* Lista de Planos Existentes */}
+              <div className="p-4 overflow-y-auto flex-1 space-y-2.5 scrollbar-thin scrollbar-thumb-slate-700">
                 {isLoadingList ? (
-                  <div className="text-center py-12 text-slate-400 font-mono text-xs">
-                    Consultando base de datos local...
+                  <div className="py-12 text-center text-slate-500 text-xs font-mono">
+                    Consultando base de datos SQLite...
                   </div>
                 ) : savedBlueprints.length === 0 ? (
-                  <div className="text-center py-12 space-y-2">
-                    <p className="text-slate-300 font-serif text-sm">
-                      No hay planos guardados en el proyecto.
-                    </p>
-                    <p className="text-slate-500 text-xs">
-                      Diseña en el canvas y pulsa el icono de Guardar.
-                    </p>
+                  <div className="py-12 text-center text-slate-500 text-xs font-mono">
+                    No hay planos registrados en la base de datos.
                   </div>
                 ) : (
                   savedBlueprints.map((item) => {
-                    const isCurrent = item.id_blueprint === bastion.idBlueprint;
+                    const isCurrent = bastion.idBlueprint === item.id_blueprint;
                     return (
                       <div
                         key={item.id_blueprint}
                         onClick={() => handleOpenBlueprint(item)}
-                        className={`group flex items-center justify-between p-4 rounded-2xl border cursor-pointer transition-all duration-200 ${
+                        className={`group flex items-center justify-between p-3.5 rounded-2xl border transition-all cursor-pointer ${
                           isCurrent
-                            ? 'border-amber-400/80 bg-slate-800/80 shadow-[0_0_20px_rgba(245,158,11,0.15)]'
-                            : 'bg-slate-950/60 border-white/5 hover:border-amber-500/40 hover:bg-slate-800/60'
+                            ? 'bg-amber-500/10 border-amber-500/50 shadow-[0_0_15px_rgba(212,175,55,0.15)]'
+                            : 'bg-slate-900/70 border-white/10 hover:border-amber-500/40 hover:bg-slate-800/60'
                         }`}
                       >
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2.5">
-                            <span className="font-serif font-bold text-sm text-slate-100 group-hover:text-amber-300">
-                              {item.name}
-                            </span>
-                            {isCurrent && (
-                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-mono border border-amber-500/40">
-                                <Check size={10} />
-                                Activo
-                              </span>
-                            )}
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`p-2.5 rounded-xl border ${
+                              isCurrent
+                                ? 'bg-amber-500 text-slate-950 border-amber-400'
+                                : 'bg-slate-800 text-slate-300 border-white/10 group-hover:border-amber-500/30'
+                            }`}
+                          >
+                            {isCurrent ? <Check size={16} /> : <FolderKanban size={16} />}
                           </div>
-                          <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400 mt-1">
-                            <Calendar size={12} />
-                            <span>Actualizado: {item.updated_at}</span>
+                          <div>
+                            <div className="font-serif text-sm font-semibold text-slate-100 group-hover:text-amber-300 transition-colors">
+                              {item.name}
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono mt-0.5">
+                              <Calendar size={11} />
+                              <span>{item.updated_at || item.created_at || 'Reciente'}</span>
+                              <span>•</span>
+                              <span>ID: #{item.id_blueprint}</span>
+                            </div>
                           </div>
                         </div>
 
@@ -628,16 +654,13 @@ export const BlueprintEditor: React.FC = () => {
                   })
                 )}
               </div>
-
-              {/* Pie Informativo */}
-              <div className="p-3.5 border-t border-white/10 bg-slate-950/70 text-[11px] text-slate-400 flex items-center justify-between">
-                <span>Total de planos guardados: {savedBlueprints.length}</span>
-                <span className="font-mono text-amber-400/80">Gestión Segura en SQLite</span>
-              </div>
             </div>
           </div>,
           document.body
         )}
+
+      {/* 4. Notificaciones Toasts No Invasivas en la Esquina Inferior Derecha */}
+      <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
     </div>
   );
 };

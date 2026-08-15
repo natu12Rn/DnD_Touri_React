@@ -12,11 +12,12 @@ export const CONFIG = {
     wall: '#f8fafc',
     wallMain: '#fbbf24',
     wallIntegrated: '#10b981', // Borde verde para perímetros internos integrados
-    wallIndependent: '#64748b', // Borde punteado para bloques independientes
+    wallIndependent: '#64748b', // Borde para bloques independientes
     fillPrimary: 'rgba(245, 158, 11, 0.14)',
     fillIntegrated: 'rgba(16, 185, 129, 0.12)',
     fillIndependent: 'rgba(100, 116, 139, 0.12)',
     fillOverLimit: 'rgba(239, 68, 68, 0.25)',
+    grid: 'rgba(255, 255, 255, 0.05)',
     gridMajor: 'rgba(212, 175, 55, 0.18)',
     gridMinor: 'rgba(255, 255, 255, 0.04)',
     text: '#94a3b8',
@@ -104,6 +105,30 @@ export function formatEO(val: number): string {
   return `${val.toLocaleString('es-ES')} EO`;
 }
 
+/** Comprueba si dos bloques se encuentran en proximidad inmediata o solapamiento */
+export function checkBlocksProximity(
+  b1Points: Vertex[],
+  b2Points: Vertex[],
+  thresholdPx: number = CONFIG.gridSize
+): boolean {
+  const bb1 = math.getBoundingBox(b1Points);
+  const bb2 = math.getBoundingBox(b2Points);
+
+  const isSeparatedX = bb1.maxX + thresholdPx < bb2.minX || bb2.maxX + thresholdPx < bb1.minX;
+  const isSeparatedY = bb1.maxY + thresholdPx < bb2.minY || bb2.maxY + thresholdPx < bb1.minY;
+  if (isSeparatedX || isSeparatedY) return false;
+
+  for (const p1 of b1Points) {
+    for (const p2 of b2Points) {
+      if (math.distance(p1, p2) <= thresholdPx * 1.05) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 /** Utilidades matemáticas y de cuadrícula */
 export const math = {
   snap: (value: number, step: number = CONFIG.gridSize): number =>
@@ -111,6 +136,24 @@ export const math = {
 
   distance: (p1: Vertex, p2: Vertex): number =>
     Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)),
+
+  /** Punto medio entre dos vértices */
+  getEdgeMidpoint: (p1: Vertex, p2: Vertex): Vertex => ({
+    x: (p1.x + p2.x) / 2,
+    y: (p1.y + p2.y) / 2,
+  }),
+
+  /** Centroide o punto central de un polígono */
+  getPolygonCenter: (points: Vertex[]): Vertex => {
+    if (points.length === 0) return { x: 0, y: 0 };
+    let sumX = 0;
+    let sumY = 0;
+    points.forEach((p) => {
+      sumX += p.x;
+      sumY += p.y;
+    });
+    return { x: sumX / points.length, y: sumY / points.length };
+  },
 
   /** Formatea la medida en pies de D&D (múltiplos de 5 ft) */
   formatMeasure: (pixels: number): string => {
@@ -166,32 +209,7 @@ export const math = {
     return { minX, maxX, minY, maxY };
   },
 
-  /**
-   * Comprueba si dos bloques se encuentran en proximidad inmediata o solapamiento
-   * para ejecutar la integración.
-   */
-  checkBlocksProximity: (
-    b1Points: Vertex[],
-    b2Points: Vertex[],
-    thresholdPx: number = CONFIG.gridSize
-  ): boolean => {
-    const bb1 = math.getBoundingBox(b1Points);
-    const bb2 = math.getBoundingBox(b2Points);
-
-    const isSeparatedX = bb1.maxX + thresholdPx < bb2.minX || bb2.maxX + thresholdPx < bb1.minX;
-    const isSeparatedY = bb1.maxY + thresholdPx < bb2.minY || bb2.maxY + thresholdPx < bb1.minY;
-    if (isSeparatedX || isSeparatedY) return false;
-
-    for (const p1 of b1Points) {
-      for (const p2 of b2Points) {
-        if (math.distance(p1, p2) <= thresholdPx * 1.05) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  },
+  checkBlocksProximity,
 };
 
 /**
@@ -219,7 +237,7 @@ export function createInitialPointsForSpace(
  * Algoritmo para limpiar vértices redundantes si las paredes quedan en el mismo eje,
  * preservando la paridad de polígonos ortogonales.
  */
-export const simplifyPolygon = (points: Vertex[]): Vertex[] => {
+export function simplifyPolygon(points: Vertex[]): Vertex[] {
   let p = points.map((pt) => ({ ...pt }));
   let changed = true;
 
@@ -264,4 +282,4 @@ export const simplifyPolygon = (points: Vertex[]): Vertex[] => {
   }
 
   return p;
-};
+}

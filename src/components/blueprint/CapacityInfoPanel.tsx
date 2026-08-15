@@ -91,9 +91,8 @@ export const CapacityInfoPanel: React.FC<CapacityInfoPanelProps> = ({
           <div className="space-y-1.5">
             <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
               <div
-                className={`h-full transition-all duration-300 ${
-                  percentUsed > 90 ? 'bg-rose-500' : percentUsed > 70 ? 'bg-amber-500' : 'bg-emerald-500'
-                }`}
+                className={`h-full transition-all duration-300 ${percentUsed > 90 ? 'bg-rose-500' : percentUsed > 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                  }`}
                 style={{ width: `${percentUsed}%` }}
               />
             </div>
@@ -161,11 +160,10 @@ export const CapacityInfoPanel: React.FC<CapacityInfoPanelProps> = ({
                   <div
                     key={block.id}
                     onClick={() => onSelectBlock(block.id)}
-                    className={`group flex items-center justify-between p-2.5 rounded-2xl border transition-all duration-200 cursor-pointer ${
-                      isSelected
+                    className={`group flex items-center justify-between p-2.5 rounded-2xl border transition-all duration-200 cursor-pointer ${isSelected
                         ? 'border-amber-400 bg-slate-800/80 shadow-md'
                         : 'border-white/5 bg-slate-950/50 hover:border-amber-500/30 hover:bg-slate-800/40'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-2.5">
                       {block.isConnected ? (
@@ -196,11 +194,10 @@ export const CapacityInfoPanel: React.FC<CapacityInfoPanelProps> = ({
 
                     <div className="flex items-center gap-2">
                       <span
-                        className={`font-mono text-[11px] font-bold px-2 py-0.5 rounded-lg border ${
-                          block.isConnected
+                        className={`font-mono text-[11px] font-bold px-2 py-0.5 rounded-lg border ${block.isConnected
                             ? 'text-emerald-300 bg-emerald-950/60 border-emerald-500/30'
                             : 'text-slate-400 bg-slate-900 border-white/10'
-                        }`}
+                          }`}
                       >
                         +{block.capacityKEO} k EO
                       </span>

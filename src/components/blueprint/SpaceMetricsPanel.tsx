@@ -124,11 +124,10 @@ export const SpaceMetricsPanel: React.FC<SpaceMetricsPanelProps> = ({
         {/* 4. Bloque Principal (Padre) */}
         <div
           onClick={() => onSelectElement(mainBlock.id)}
-          className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-            selectedId === mainBlock.id
+          className={`p-3 rounded-2xl border transition-all cursor-pointer ${selectedId === mainBlock.id
               ? 'border-amber-400 bg-slate-800/80 shadow-md'
               : 'border-white/5 bg-slate-950/40 hover:border-amber-500/30'
-          }`}
+            }`}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -158,11 +157,10 @@ export const SpaceMetricsPanel: React.FC<SpaceMetricsPanelProps> = ({
                       e.stopPropagation();
                       onSelectElement(child.id);
                     }}
-                    className={`flex items-center justify-between p-2 rounded-xl border transition-all ${
-                      isSelected
+                    className={`flex items-center justify-between p-2 rounded-xl border transition-all ${isSelected
                         ? 'border-emerald-400 bg-emerald-950/40'
                         : 'border-emerald-500/20 bg-emerald-950/20 hover:border-emerald-500/40'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-1.5">
                       <Link2 size={12} className="text-emerald-400" />
@@ -210,11 +208,10 @@ export const SpaceMetricsPanel: React.FC<SpaceMetricsPanelProps> = ({
                 <div
                   key={building.id}
                   onClick={() => onSelectElement(building.id)}
-                  className={`group flex items-center justify-between p-2.5 rounded-2xl border transition-all cursor-pointer ${
-                    isSelected
+                  className={`group flex items-center justify-between p-2.5 rounded-2xl border transition-all cursor-pointer ${isSelected
                       ? 'border-amber-400 bg-slate-800/80 shadow-md'
                       : 'border-white/5 bg-slate-950/40 hover:border-amber-500/30'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-2">
                     <div className="p-1 rounded-lg bg-slate-900 text-slate-500 border border-white/10">

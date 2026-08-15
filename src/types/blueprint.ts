@@ -40,7 +40,7 @@ export interface BuildingDefinition {
   color: string;
 }
 
-/** Edificación especial con su propio perímetro interno y límites de cuadros */
+/** Edificación especial con su propio perímetro interno, posición relativa y límites de cuadros */
 export interface SpecialBuildingBlock {
   id: string;
   parentId: string | null;  // ID del bloque principal si está integrada, o null si es independiente
@@ -51,9 +51,13 @@ export interface SpecialBuildingBlock {
   costEO: number;           // Coste de la edificación especial en EO
   points: Vertex[];         // Perímetro interno propio
   isIntegrated: boolean;    // True si está anidada como hijo del bloque principal
+  relativePosition?: {      // Desplazamiento relativo respecto al origen del núcleo padre
+    x: number;
+    y: number;
+  };
 }
 
-/** Bloque Principal del bastión (Padre) */
+/** Bloque Principal del bastión (Padre / Núcleo) */
 export interface MainConstructionBlock {
   id: string;
   name: string;
