@@ -513,18 +513,19 @@ export const BlueprintEditor: React.FC = () => {
     <div className="flex flex-col w-full h-full bg-[#0f1117] text-slate-100 select-none overflow-hidden font-sans">
       {/* 1. Selector Superior de Edificaciones y Filtros de Espacio */}
       <BlueprintToolbar
-        currentBaseSpaceType={bastion.mainBlock.baseSpaceType}
-        hasAssociatedElements={hasAssociatedElements}
-        onSelectBaseSpaceType={handleChangeBaseSpaceType}
-        onAddBuilding={handleAddBuilding}
-        onAddExpansion={handleAddExpansion}
-        blueprintName={bastion.name}
-        onUpdateBlueprintName={(newName) =>
+        bastionName={bastion.name}
+        isEditingSaved={Boolean(bastion.idBlueprint)}
+        baseSpaceType={bastion.mainBlock.baseSpaceType}
+        isBaseSpaceDisabled={hasAssociatedElements}
+        onChangeBaseSpaceType={handleChangeBaseSpaceType}
+        onChangeBastionName={(newName: string) =>
           setBastion((prev) => ({ ...prev, name: newName }))
         }
+        onAddBuilding={handleAddBuilding}
+        onAddExpansion={handleAddExpansion}
         onReloadBastion={handleReloadBastion}
         onSaveBastion={handleSaveBastion}
-        onOpenPlansModal={() => {
+        onOpenPlansManagement={() => {
           fetchSavedBlueprints();
           setShowPlansModal(true);
         }}

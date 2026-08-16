@@ -12,7 +12,6 @@ import {
   Unlink2,
   Trash2,
   Coins,
-  Building,
   Sparkles,
   Layers,
 } from 'lucide-react';
