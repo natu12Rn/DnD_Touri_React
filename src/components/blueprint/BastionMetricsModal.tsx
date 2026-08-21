@@ -1,61 +1,64 @@
 import React, { useState } from 'react';
-import {
-  MainConstructionBlock,
-  SpecialBuildingBlock,
-} from '../../types/blueprint';
-import { math, formatEO } from '../../utils/geometry';
+import { BastionBlock } from '../../types/blueprint';
+import { math, formatEO, calculateBuildDays } from '../../utils/geometry';
 import {
   LayoutGrid,
   ChevronRight,
   ChevronLeft,
-  Link2,
-  Unlink2,
+  ChevronDown,
+  ChevronUp,
   Trash2,
   Coins,
+  Clock,
   Sparkles,
   Layers,
+  AlertTriangle,
+  CheckCircle2,
+  Info,
 } from 'lucide-react';
+import { SpecialFacilityInfoModal } from './SpecialFacilityInfoModal';
 
 interface BastionMetricsModalProps {
-  mainBlock: MainConstructionBlock;
-  independentBuildings: SpecialBuildingBlock[];
+  blocks: BastionBlock[];
   selectedId: string | null;
   onSelectElement: (id: string) => void;
-  onDeleteBuilding: (id: string, isIntegrated: boolean) => void;
-  onDeintegrateBuilding?: (id: string) => void;
-  onRemoveExpansion: (id: string) => void;
+  onDeleteBlock: (id: string) => void;
 }
 
 export const BastionMetricsModal: React.FC<BastionMetricsModalProps> = ({
-  mainBlock,
-  independentBuildings,
+  blocks,
   selectedId,
   onSelectElement,
-  onDeleteBuilding,
-  onDeintegrateBuilding,
-  onRemoveExpansion,
+  onDeleteBlock,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isListExpanded, setIsListExpanded] = useState(false);
+  const [infoModalFacilityId, setInfoModalFacilityId] = useState<string | null>(null);
 
-  // 1. Desglose de Espacio Físico en CUADROS
-  const baseCells = mainBlock.baseCells; // Espacio base del núcleo elegido por el usuario
-  const childCells = mainBlock.integratedBuildings.reduce(
-    (acc, b) => acc + math.calculateCellCount(b.points),
-    0
-  ); // Espacio aportado por edificios hijos
-  const expansionCells = mainBlock.expansions.reduce((acc, exp) => acc + exp.cells, 0); // Espacio aportado por expansiones
-  const totalAvailableCells = baseCells + childCells + expansionCells; // Espacio total disponible
+  // 1. Desglose de Espacio Físico en Celdas (Ignora pasillos con isCostFree = true)
+  const usedCells = blocks
+    .filter((b) => !b.isCostFree)
+    .reduce((acc, b) => acc + math.calculateCellCount(b.points), 0);
 
-  const currentMainCells = math.calculateCellCount(mainBlock.points); // Cuadros utilizados por el bloque principal
+  const corridorCells = blocks
+    .filter((b) => b.isCostFree)
+    .reduce((acc, b) => acc + math.calculateCellCount(b.points), 0);
 
-  // 2. Desglose de Costes en EO (Incluyendo el coste inicial del núcleo)
-  const baseCoreCostEO = mainBlock.baseCostEO || 1000;
-  const allBuildings = [...mainBlock.integratedBuildings, ...independentBuildings];
-  const totalBuildingsCostEO = allBuildings.reduce((acc, b) => acc + b.costEO, 0);
-  const totalExpansionsCostEO = mainBlock.expansions.reduce((acc, exp) => acc + exp.costEO, 0);
-  
-  // Coste Total = Coste Inicial del Núcleo + Coste Edificaciones + Coste Expansiones
-  const totalAccumulatedCostEO = baseCoreCostEO + totalBuildingsCostEO + totalExpansionsCostEO;
+  // 2. Desglose de Costes en EO y Días de Construcción
+  const totalCostEO = blocks.reduce((acc, b) => acc + (b.costEO || 0), 0);
+  const totalBuildDays = blocks.reduce((acc, b) => acc + calculateBuildDays(b), 0);
+
+  // 3. Contar bloques en estado de advertencia (Soft Validation)
+  const invalidBlocksCount = blocks.filter((b) => {
+    const cells = math.calculateCellCount(b.points);
+    const isSimple = math.isSimplePolygon(b.points);
+    const isOverlapping = math.checkBlockOverlaps(b.id, b.points, blocks);
+    const isSizeMismatch = b.requiredCells !== undefined && cells !== b.requiredCells;
+    return isSizeMismatch || !isSimple || isOverlapping;
+  }).length;
+
+  // Bloques visibles (primeros 4 si está recogido, todos si está desplegado)
+  const visibleBlocks = isListExpanded ? blocks : blocks.slice(0, 4);
 
   if (isCollapsed) {
     return (
@@ -66,10 +69,15 @@ export const BastionMetricsModal: React.FC<BastionMetricsModalProps> = ({
         >
           <ChevronLeft size={16} />
           <LayoutGrid size={15} />
-          <span>{totalAvailableCells} Cuadros</span>
+          <span>{usedCells} Celdas</span>
+          {invalidBlocksCount > 0 && (
+            <span className="flex items-center gap-1 text-rose-400 font-sans text-[11px] font-semibold">
+              <AlertTriangle size={13} /> {invalidBlocksCount}
+            </span>
+          )}
           <span className="text-slate-500">|</span>
           <Coins size={14} className="text-amber-400" />
-          <span>{formatEO(totalAccumulatedCostEO)}</span>
+          <span>{formatEO(totalCostEO)}</span>
         </button>
       </div>
     );
@@ -95,250 +103,204 @@ export const BastionMetricsModal: React.FC<BastionMetricsModalProps> = ({
       </div>
 
       <div className="p-4 overflow-y-auto space-y-4 flex-1 scrollbar-thin scrollbar-thumb-slate-700 text-xs">
-        {/* 2. Sección: Espacio Físico (Cuadros de 5x5 ft) */}
+        {/* 2. Sección: Espacio Físico */}
         <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-white/10 space-y-2.5">
           <div className="flex items-center justify-between">
             <span className="text-slate-400 uppercase font-mono text-[10px] tracking-wider font-semibold">
-              Espacio Físico Total
+              Espacio Físico Utilizado
             </span>
             <span className="font-mono text-sm font-bold text-amber-300">
-              {currentMainCells} / {totalAvailableCells} cuadros
+              {usedCells} celdas
             </span>
           </div>
 
-          {/* Barra de progreso de ocupación del espacio */}
-          <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden border border-white/5">
-            <div
-              className={`h-full transition-all duration-300 ${
-                currentMainCells > totalAvailableCells
-                  ? 'bg-rose-500'
-                  : currentMainCells === totalAvailableCells
-                  ? 'bg-amber-400'
-                  : 'bg-emerald-500'
-              }`}
-              style={{
-                width: `${Math.min(100, (currentMainCells / Math.max(1, totalAvailableCells)) * 100)}%`,
-              }}
-            />
-          </div>
-
-          {/* Desglose detallado del origen de los cuadros */}
-          <div className="grid grid-cols-3 gap-1.5 pt-1 text-[10px] font-mono text-slate-400">
+          <div className="grid grid-cols-2 gap-2 pt-1 text-[10px] font-mono">
             <div className="p-2 rounded-xl bg-slate-900/60 border border-white/5 flex flex-col">
-              <span className="text-slate-500">Base Núcleo</span>
-              <span className="text-slate-200 font-bold">{baseCells} c.</span>
+              <span className="text-slate-400">Habitaciones & Obras</span>
+              <span className="text-amber-300 font-bold">{usedCells} celdas</span>
             </div>
             <div className="p-2 rounded-xl bg-slate-900/60 border border-white/5 flex flex-col">
-              <span className="text-emerald-400/80">Hijos (+{childCells} c.)</span>
-              <span className="text-emerald-300 font-bold">{childCells} c.</span>
-            </div>
-            <div className="p-2 rounded-xl bg-slate-900/60 border border-white/5 flex flex-col">
-              <span className="text-amber-400/80">Expansiones</span>
-              <span className="text-amber-300 font-bold">+{expansionCells} c.</span>
+              <span className="text-slate-400">Pasillos (Costo 0)</span>
+              <span className="text-sky-300 font-bold">{corridorCells} celdas</span>
             </div>
           </div>
         </div>
 
-        {/* 3. Sección: Presupuesto & Costes Totales en EO */}
-        <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-white/10 space-y-2">
+        {/* 3. Sección: Presupuesto, Costes Totales & Tiempo de Obra */}
+        <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-white/10 space-y-2.5">
           <div className="flex items-center justify-between">
             <span className="text-slate-400 uppercase font-mono text-[10px] tracking-wider font-semibold">
-              Coste Total de la Obra
+              Coste Total en EO
             </span>
             <div className="flex items-center gap-1.5 text-amber-400 font-mono font-bold text-sm">
               <Coins size={14} />
-              <span>{formatEO(totalAccumulatedCostEO)}</span>
+              <span>{formatEO(totalCostEO)}</span>
             </div>
           </div>
 
-          {/* Desglose detallado de costes en EO */}
-          <div className="space-y-1 pt-1 text-[11px] text-slate-300 font-mono">
-            <div className="flex justify-between py-0.5 border-b border-white/5">
-              <span className="text-slate-400">Coste Base Núcleo:</span>
-              <span className="text-amber-300 font-semibold">{formatEO(baseCoreCostEO)}</span>
-            </div>
-            <div className="flex justify-between py-0.5 border-b border-white/5">
-              <span className="text-slate-400">Edificaciones ({allBuildings.length}):</span>
-              <span className="text-slate-200 font-semibold">{formatEO(totalBuildingsCostEO)}</span>
-            </div>
-            <div className="flex justify-between py-0.5">
-              <span className="text-slate-400">Expansiones ({mainBlock.expansions.length}):</span>
-              <span className="text-slate-200 font-semibold">{formatEO(totalExpansionsCostEO)}</span>
+          <div className="flex items-center justify-between pt-1 border-t border-white/5">
+            <span className="text-slate-400 uppercase font-mono text-[10px] tracking-wider font-semibold">
+              Tiempo Total de Obra
+            </span>
+            <div className="flex items-center gap-1.5 text-sky-400 font-mono font-bold text-xs">
+              <Clock size={13} />
+              <span>
+                {totalBuildDays} días{' '}
+                <span className="text-[10px] text-slate-400 font-normal">
+                  ({Math.round((totalBuildDays / 7) * 10) / 10} sem)
+                </span>
+              </span>
             </div>
           </div>
         </div>
 
-        {/* 4. Expansiones Activas */}
-        {mainBlock.expansions.length > 0 && (
-          <div className="space-y-2">
-            <span className="text-[10px] font-mono uppercase text-slate-400 tracking-wider font-semibold block">
-              Expansiones Adquiridas ({mainBlock.expansions.length})
-            </span>
-            <div className="space-y-1.5">
-              {mainBlock.expansions.map((exp) => (
-                <div
-                  key={exp.id}
-                  className="flex items-center justify-between p-2 rounded-xl bg-slate-950/60 border border-white/5 font-mono text-xs"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    <span className="font-sans font-bold text-slate-200">{exp.name}</span>
-                    <span className="text-[10px] text-amber-400/90 font-bold">+{exp.cells} c.</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-400">{formatEO(exp.costEO)}</span>
-                    <button
-                      onClick={() => onRemoveExpansion(exp.id)}
-                      className="text-slate-500 hover:text-rose-400 p-1 rounded transition-colors"
-                      title="Eliminar Expansión"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 5. Edificaciones Especiales Integradas (Hijos del Núcleo) */}
+        {/* 4. Lista de Bloques del Bastión */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-mono uppercase text-slate-400 tracking-wider font-semibold">
-              Edificios Hijos Integrados ({mainBlock.integratedBuildings.length})
+              Estructuras del Bastión ({blocks.length})
             </span>
-            <span className="text-[10px] font-mono text-emerald-400">
-              +{childCells} cuadros aportados
-            </span>
+            {invalidBlocksCount > 0 ? (
+              <span className="flex items-center gap-1 font-mono text-[10px] text-rose-400 font-bold">
+                <AlertTriangle size={12} /> {invalidBlocksCount} por ajustar
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-400">
+                <CheckCircle2 size={12} /> Todo en regla
+              </span>
+            )}
           </div>
 
-          {mainBlock.integratedBuildings.length === 0 ? (
+          {blocks.length === 0 ? (
             <div className="p-3 rounded-2xl border border-dashed border-white/10 text-center text-slate-500 text-xs">
-              Sin edificios hijos integrados. Arrastra una edificación cerca del bastión para anidarla.
+              Sin estructuras agregadas. Usa la barra superior para crear pasillos o habitaciones.
             </div>
           ) : (
-            <div className="space-y-1.5">
-              {mainBlock.integratedBuildings.map((child) => {
-                const isSelected = child.id === selectedId;
-                const childCellCount = math.calculateCellCount(child.points);
-                return (
-                  <div
-                    key={child.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectElement(child.id);
-                    }}
-                    className={`flex items-center justify-between p-2 rounded-xl border transition-all cursor-pointer ${
-                      isSelected
-                        ? 'border-emerald-400 bg-emerald-950/40'
-                        : 'border-emerald-500/20 bg-emerald-950/20 hover:border-emerald-500/40'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <Link2 size={12} className="text-emerald-400" />
-                      <span className="font-serif font-bold text-[11px] text-slate-200">
-                        {child.name}
-                      </span>
-                    </div>
+            <div className="space-y-2">
+              {/* Listado con scrollbar si excede la altura máxima */}
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-slate-900/50">
+                {visibleBlocks.map((block) => {
+                  const isSelected = block.id === selectedId;
+                  const cellCount = math.calculateCellCount(block.points);
+                  const isSimple = math.isSimplePolygon(block.points);
+                  const isOverlapping = math.checkBlockOverlaps(block.id, block.points, blocks);
+                  const isSizeMismatch =
+                    block.requiredCells !== undefined && cellCount !== block.requiredCells;
+                  const isInvalid = isSizeMismatch || !isSimple || isOverlapping;
+                  const buildDays = calculateBuildDays(block);
 
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] text-slate-300">
-                        {childCellCount}/{child.maxCells} c.
-                      </span>
-                      <span className="font-mono text-[10px] text-amber-400 font-bold">
-                        {formatEO(child.costEO)}
-                      </span>
-                      {onDeintegrateBuilding && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeintegrateBuilding(child.id);
-                          }}
-                          title="Desacoplar edificio como bloque independiente"
-                          className="text-slate-400 hover:text-amber-400 transition-colors ml-1 p-0.5 rounded"
-                        >
-                          <Unlink2 size={12} />
-                        </button>
-                      )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteBuilding(child.id, true);
-                        }}
-                        title="Eliminar Edificio Hijo"
-                        className="text-slate-400 hover:text-rose-400 transition-colors ml-1 p-0.5 rounded"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                  return (
+                    <div
+                      key={block.id}
+                      onClick={() => onSelectElement(block.id)}
+                      className={`flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer ${
+                        isInvalid
+                          ? 'border-rose-500/50 bg-rose-950/20 hover:border-rose-400'
+                          : isSelected
+                          ? 'border-amber-400 bg-amber-950/30'
+                          : 'border-white/5 bg-slate-950/40 hover:border-white/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {isInvalid ? (
+                          <AlertTriangle size={13} className="text-rose-400 shrink-0" />
+                        ) : (
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                        )}
+                        <div className="flex flex-col">
+                          <span className="font-serif font-bold text-[11px] text-slate-200">
+                            {block.name}
+                            {isOverlapping && (
+                              <span className="text-[10px] text-rose-400 font-sans ml-1 font-semibold">
+                                (Superposición)
+                              </span>
+                            )}
+                          </span>
+                          <span className="font-mono text-[10px] text-slate-400">
+                            {block.isCostFree
+                              ? `${cellCount} c. (Pasillo Costo 0)`
+                              : block.requiredCells
+                              ? `${cellCount} / ${block.requiredCells} celdas`
+                              : `${cellCount} celdas`}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex flex-col items-end font-mono">
+                          <span className="text-[10px] text-amber-400 font-bold">
+                            {block.isCostFree ? '0 EO' : formatEO(block.costEO || 0)}
+                          </span>
+                          <span className="text-[9px] text-sky-400/90 font-semibold flex items-center gap-0.5">
+                            <Clock size={9} />
+                            {block.isCostFree ? '0 d.' : `${buildDays} d.`}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {block.buildingId && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setInfoModalFacilityId(block.buildingId || null);
+                              }}
+                              title="Ver detalles técnicos y reglas oficiales D&D"
+                              className="text-slate-400 hover:text-amber-300 transition-colors p-1 rounded hover:bg-amber-500/10 border border-transparent hover:border-amber-500/30"
+                            >
+                              <Info size={12} />
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteBlock(block.id);
+                            }}
+                            title="Eliminar Estructura"
+                            className="text-slate-400 hover:text-rose-400 transition-colors p-1 rounded hover:bg-rose-950/40"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+
+              {/* Botón Desplegar / Recoger si hay más de 4 estructuras */}
+              {blocks.length > 4 && (
+                <button
+                  onClick={() => setIsListExpanded(!isListExpanded)}
+                  className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-amber-300 border border-white/5 text-[11px] font-mono font-semibold transition-all active:scale-95 shadow-sm"
+                >
+                  {isListExpanded ? (
+                    <>
+                      <span>Mostrar menos (Ver 4)</span>
+                      <ChevronUp size={13} />
+                    </>
+                  ) : (
+                    <>
+                      <span>Ver todas las estructuras ({blocks.length})</span>
+                      <ChevronDown size={13} />
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           )}
         </div>
-
-        {/* 6. Edificaciones Independientes (Flotantes) */}
-        {independentBuildings.length > 0 && (
-          <div className="space-y-2 pt-1">
-            <span className="text-[10px] font-mono uppercase text-slate-400 tracking-wider font-semibold block">
-              Edificaciones Independientes ({independentBuildings.length})
-            </span>
-
-            {independentBuildings.map((building) => {
-              const isSelected = building.id === selectedId;
-              const cellCount = math.calculateCellCount(building.points);
-              return (
-                <div
-                  key={building.id}
-                  onClick={() => onSelectElement(building.id)}
-                  className={`group flex items-center justify-between p-2.5 rounded-2xl border transition-all cursor-pointer ${
-                    isSelected
-                      ? 'border-amber-400 bg-slate-800/80 shadow-md'
-                      : 'border-white/5 bg-slate-950/40 hover:border-amber-500/30'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="p-1 rounded-lg bg-slate-900 text-slate-500 border border-white/10">
-                      <Unlink2 size={12} />
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="font-serif font-bold text-xs text-slate-200">
-                        {building.name}
-                      </span>
-                      <span className="text-[10px] font-mono text-slate-400">
-                        {cellCount}/{building.maxCells} cuadros (Flotante)
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] font-bold text-amber-400/90 bg-slate-900 px-2 py-0.5 rounded-lg border border-white/10">
-                      {formatEO(building.costEO)}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteBuilding(building.id, false);
-                      }}
-                      title="Eliminar Edificación"
-                      className="opacity-0 group-hover:opacity-100 text-rose-400 hover:text-rose-300 p-1 rounded-lg hover:bg-rose-950/40 transition-all"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
 
-      {/* 7. Pie Informativo */}
+      {/* 5. Pie Informativo */}
       <div className="p-3 border-t border-white/10 bg-slate-950/70 text-[10px] text-slate-400 font-sans flex items-center gap-1.5 shrink-0">
         <Sparkles className="text-amber-400 shrink-0" size={13} />
-        <span>Arrastra el bloque principal para moverlo junto con todos sus hijos.</span>
+        <span>Haz clic en cualquier estructura para modificar sus paredes y esquinas.</span>
       </div>
+
+      {/* Modal de Información Técnica de Bastiones.md */}
+      <SpecialFacilityInfoModal
+        facilityId={infoModalFacilityId}
+        onClose={() => setInfoModalFacilityId(null)}
+      />
     </div>
   );
 };

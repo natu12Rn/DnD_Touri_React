@@ -40,42 +40,30 @@ export interface BuildingDefinition {
   color: string;
 }
 
-/** Edificación especial con su propio perímetro interno, posición relativa y límites de cuadros */
-export interface SpecialBuildingBlock {
-  id: string;
-  parentId: string | null;  // ID del bloque principal si está integrada, o null si es independiente
-  buildingId: string;
-  name: string;
-  space: SpaceType;
-  maxCells: number;         // Cuadros máximos permitidos para esta edificación (4, 16 o 36)
-  costEO: number;           // Coste de la edificación especial en EO
-  points: Vertex[];         // Perímetro interno propio
-  isIntegrated: boolean;    // True si está anidada como hijo del bloque principal
-  relativePosition?: {      // Desplazamiento relativo respecto al origen del núcleo padre
-    x: number;
-    y: number;
-  };
-}
+/** Categoría de bloque en la arquitectura modular Bottom-Up */
+export type BlockType = 'BASIC_ROOM' | 'SPECIAL_FACILITY' | 'CORRIDOR';
 
-/** Bloque Principal del bastión (Padre / Núcleo) */
-export interface MainConstructionBlock {
+/** Bloque de construcción independiente en el canvas táctico */
+export interface BastionBlock {
   id: string;
   name: string;
-  baseSpaceType: SpaceType; // Espacio inicial a elección del usuario (Apretado, Espaciado, Vasto)
-  baseCells: number;        // Cuadros base asignados al núcleo (4, 16 o 36 cuadros)
-  baseCostEO: number;       // Coste inicial del núcleo en EO (500, 1000 o 3000 EO)
-  points: Vertex[];         // Vértices del contorno general
-  expansions: AppliedExpansion[]; // Expansiones de espacio adicionales adquiridas
-  integratedBuildings: SpecialBuildingBlock[]; // Edificaciones especiales hijas anidadas
+  type: BlockType;
+  points: Vertex[];         // Vértices del polígono en la grilla
+  isCostFree: boolean;      // True para pasillos y elementos decorativos (0 costo de celdas)
+  space?: SpaceType;        // Apretado (4), Espacioso (16), Vasto (36) si aplica
+  requiredCells?: number;   // 4, 16 o 36 casillas exactas para edificaciones especiales
+  costEO?: number;          // Coste en piezas de oro / EO según catálogo
+  buildingId?: string;      // ID de la edificación del catálogo si es de tipo SPECIAL_FACILITY
+  color?: string;           // Color de renderizado personalizado o por defecto
 }
 
-/** Estado Unificado de la Construcción */
+/** Estado Unificado de la Construcción (Modelo Bottom-Up v2) */
 export interface UnifiedBastionState {
+  version?: number;         // Versión del modelo de datos (v2)
   idBlueprint?: number;
   name: string;
   gridSizeFt: number;       // 5 ft por cuadro (40px)
-  mainBlock: MainConstructionBlock;
-  independentBuildings: SpecialBuildingBlock[]; // Edificaciones especiales flotantes/independientes
+  blocks: BastionBlock[];   // Arreglo plano de todos los bloques independientes
   createdAt?: string;
   updatedAt?: string;
 }
@@ -90,3 +78,4 @@ export interface ToastNotification {
   message: string;
   durationMs?: number;
 }
+

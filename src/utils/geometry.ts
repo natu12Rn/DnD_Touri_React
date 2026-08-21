@@ -210,16 +210,181 @@ export const math = {
   },
 
   checkBlocksProximity,
+
+  /**
+   * Comprueba si dos polígonos de bloques se superponen ocupando casillas en común.
+   * (Muros compartidos o adyacencia NO cuentan como superposición).
+   */
+  doBlocksOverlap: (pointsA: Vertex[], pointsB: Vertex[]): boolean => {
+    if (pointsA.length < 3 || pointsB.length < 3) return false;
+
+    const bbA = math.getBoundingBox(pointsA);
+    const bbB = math.getBoundingBox(pointsB);
+
+    if (
+      bbA.maxX <= bbB.minX ||
+      bbB.maxX <= bbA.minX ||
+      bbA.maxY <= bbB.minY ||
+      bbB.maxY <= bbA.minY
+    ) {
+      return false;
+    }
+
+    const intersectMinX = math.snap(Math.max(bbA.minX, bbB.minX));
+    const intersectMaxX = math.snap(Math.min(bbA.maxX, bbB.maxX));
+    const intersectMinY = math.snap(Math.max(bbA.minY, bbB.minY));
+    const intersectMaxY = math.snap(Math.min(bbA.maxY, bbB.maxY));
+
+    for (let x = intersectMinX; x < intersectMaxX; x += CONFIG.gridSize) {
+      for (let y = intersectMinY; y < intersectMaxY; y += CONFIG.gridSize) {
+        const cellCenter = { x: x + CONFIG.gridSize / 2, y: y + CONFIG.gridSize / 2 };
+        if (
+          math.isPointInPolygon(cellCenter, pointsA) &&
+          math.isPointInPolygon(cellCenter, pointsB)
+        ) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  },
+
+  /**
+   * Comprueba si un bloque se superpone con algún otro bloque del Bastión.
+   */
+  checkBlockOverlaps: (
+    blockId: string,
+    points: Vertex[],
+    allBlocks: { id: string; points: Vertex[] }[]
+  ): boolean => {
+    for (const other of allBlocks) {
+      if (other.id === blockId) continue;
+      if (math.doBlocksOverlap(points, other.points)) {
+        return true;
+      }
+    }
+    return false;
+  },
+
+  /**
+   * Descompone todas las paredes del Bastión en bordes unitarios de 40px (1 casilla).
+   * Cuenta cuántos bloques contienen cada borde unitario para renderizar el contorno unificado.
+   */
+  computeGridEdgeCounts: (blocks: { points: Vertex[] }[]): Map<string, number> => {
+    const edgeCounts = new Map<string, number>();
+
+    blocks.forEach((block) => {
+      const points = block.points;
+      const N = points.length;
+      if (N < 3) return;
+
+      for (let i = 0; i < N; i++) {
+        const p1 = points[i];
+        const p2 = points[(i + 1) % N];
+
+        const minX = Math.min(p1.x, p2.x);
+        const maxX = Math.max(p1.x, p2.x);
+        const minY = Math.min(p1.y, p2.y);
+        const maxY = Math.max(p1.y, p2.y);
+
+        if (Math.abs(p1.y - p2.y) < 1) {
+          // Segmento Horizontal
+          const y = math.snap(p1.y);
+          const startX = math.snap(minX);
+          const endX = math.snap(maxX);
+          for (let x = startX; x < endX; x += CONFIG.gridSize) {
+            const key = `H:${x},${y}`;
+            edgeCounts.set(key, (edgeCounts.get(key) || 0) + 1);
+          }
+        } else if (Math.abs(p1.x - p2.x) < 1) {
+          // Segmento Vertical
+          const x = math.snap(p1.x);
+          const startY = math.snap(minY);
+          const endY = math.snap(maxY);
+          for (let y = startY; y < endY; y += CONFIG.gridSize) {
+            const key = `V:${x},${y}`;
+            edgeCounts.set(key, (edgeCounts.get(key) || 0) + 1);
+          }
+        }
+      }
+    });
+
+    return edgeCounts;
+  },
+
+  /**
+   * Comprueba si un polígono es simple (no se intersecta a sí mismo).
+   */
+  isSimplePolygon: (points: Vertex[]): boolean => {
+    const n = points.length;
+    if (n < 4) return true;
+
+    function doSegmentsIntersect(p1: Vertex, q1: Vertex, p2: Vertex, q2: Vertex): boolean {
+      function ccw(a: Vertex, b: Vertex, c: Vertex): number {
+        const val = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+        if (Math.abs(val) < 1e-5) return 0; // Colineal
+        return val > 0 ? 1 : 2; // Horario o antihorario
+      }
+
+      const o1 = ccw(p1, q1, p2);
+      const o2 = ccw(p1, q1, q2);
+      const o3 = ccw(p2, q2, p1);
+      const o4 = ccw(p2, q2, q1);
+
+      if (o1 !== o2 && o3 !== o4) return true;
+      return false;
+    }
+
+    for (let i = 0; i < n; i++) {
+      const p1 = points[i];
+      const q1 = points[(i + 1) % n];
+
+      for (let j = i + 2; j < n; j++) {
+        if (i === 0 && j === n - 1) continue; // Ignorar segmentos adyacentes de cierre
+        const p2 = points[j];
+        const q2 = points[(j + 1) % n];
+
+        if (doSegmentsIntersect(p1, q1, p2, q2)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  },
 };
+
+/**
+ * Crea los vértices iniciales de un pasillo de costo 0 (1x3 casillas por defecto).
+ */
+export function createCorridorPoints(
+  rawStartX: number = 200,
+  rawStartY: number = 200,
+  lengthCells: number = 3
+): Vertex[] {
+  const startX = math.snap(rawStartX);
+  const startY = math.snap(rawStartY);
+  const widthPx = CONFIG.gridSize; // 1 casilla de 40px (5ft) de ancho
+  const lengthPx = lengthCells * CONFIG.gridSize; // 3 casillas de largo (15ft)
+
+  return [
+    { x: startX, y: startY },
+    { x: startX + lengthPx, y: startY },
+    { x: startX + lengthPx, y: startY + widthPx },
+    { x: startX, y: startY + widthPx },
+  ];
+}
 
 /**
  * Crea los vértices iniciales de un bloque cuadrado según su tipo de espacio.
  */
 export function createInitialPointsForSpace(
   space: SpaceType,
-  startX: number = 200,
-  startY: number = 200
+  rawStartX: number = 200,
+  rawStartY: number = 200
 ): Vertex[] {
+  const startX = math.snap(rawStartX);
+  const startY = math.snap(rawStartY);
   let cellsSide = 4; // Por defecto Espacioso 4x4
   if (space === 'APRETADO') cellsSide = 2; // 2x2 celdas = 4
   else if (space === 'VASTO') cellsSide = 6; // 6x6 celdas = 36
@@ -283,3 +448,35 @@ export function simplifyPolygon(points: Vertex[]): Vertex[] {
 
   return p;
 }
+
+/**
+ * Calcula los días de construcción estimados para un bloque según las reglas de Bastiones D&D 5e.
+ * - Pasillos (isCostFree = true): 0 días
+ * - Apretado (4 celdas): 7 a 10 días
+ * - Espacioso (16 celdas): 20 a 30 días
+ * - Vasto (36 celdas): 30 a 45 días
+ */
+export function calculateBuildDays(block: {
+  type?: string;
+  space?: SpaceType;
+  costEO?: number;
+  isCostFree?: boolean;
+}): number {
+  if (block.isCostFree || block.type === 'CORRIDOR') return 0;
+
+  const space = block.space || 'ESPACIOSO';
+  const cost = block.costEO || 0;
+
+  if (space === 'APRETADO') {
+    return cost > 5000 ? 10 : 7;
+  }
+  if (space === 'ESPACIOSO') {
+    return cost >= 13000 ? 30 : cost >= 9000 ? 25 : 20;
+  }
+  if (space === 'VASTO') {
+    return cost >= 17000 ? 45 : cost >= 13000 ? 40 : 30;
+  }
+
+  return 20;
+}
+

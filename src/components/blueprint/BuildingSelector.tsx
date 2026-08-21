@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { BuildingDefinition, SpaceType } from '../../types/blueprint';
 import { BUILDINGS_CATALOG, formatEO } from '../../utils/geometry';
-import { Building2, Search, X, ChevronDown, Filter } from 'lucide-react';
+import { Building2, Search, X, ChevronDown, Filter, Info } from 'lucide-react';
+import { SpecialFacilityInfoModal } from './SpecialFacilityInfoModal';
 
 interface BuildingSelectorProps {
   onAddBuilding: (building: BuildingDefinition) => void;
@@ -13,6 +14,7 @@ export const BuildingSelector: React.FC<BuildingSelectorProps> = ({ onAddBuildin
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSpaceFilter, setSelectedSpaceFilter] = useState<SpaceFilter>('ALL');
+  const [infoModalFacilityId, setInfoModalFacilityId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Cerrar al hacer clic fuera
@@ -139,26 +141,46 @@ export const BuildingSelector: React.FC<BuildingSelectorProps> = ({ onAddBuildin
                     onAddBuilding(building);
                     setIsOpen(false);
                   }}
-                  className="flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-800/80 cursor-pointer transition-all border border-transparent hover:border-amber-500/20 group"
+                  className="flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-800/80 cursor-pointer transition-all border border-transparent hover:border-amber-500/20 group gap-2"
                 >
-                  <div className="flex flex-col">
-                    <span className="font-serif text-xs font-bold text-slate-200 group-hover:text-amber-300">
+                  <div className="flex flex-col flex-1 min-w-0 pr-1">
+                    <span className="font-serif text-xs font-bold text-slate-200 group-hover:text-amber-300 truncate">
                       {building.name}
                     </span>
-                    <span className="text-[10px] font-mono text-slate-400">
+                    <span className="text-[10px] font-mono text-slate-400 truncate">
                       {building.space} • {building.maxCells} cuadros ({building.dimFt})
                     </span>
                   </div>
 
-                  <span className="text-[11px] font-mono font-bold text-amber-400/90 bg-slate-950/60 px-2 py-0.5 rounded-lg border border-white/5">
-                    {formatEO(building.costEO)}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInfoModalFacilityId(building.id);
+                      }}
+                      title="Ver detalles técnicos y reglas oficiales D&D"
+                      className="p-1 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/30 transition-all shrink-0"
+                    >
+                      <Info size={14} />
+                    </button>
+
+                    <span className="w-[84px] text-right text-[11px] font-mono font-bold text-amber-400/90 bg-slate-950/60 px-2 py-0.5 rounded-lg border border-white/5 shrink-0">
+                      {formatEO(building.costEO)}
+                    </span>
+                  </div>
                 </div>
               ))
             )}
           </div>
         </div>
       )}
+
+      {/* Modal de Información Técnica Detallada de Bastiones.md */}
+      <SpecialFacilityInfoModal
+        facilityId={infoModalFacilityId}
+        onClose={() => setInfoModalFacilityId(null)}
+        onAddBuilding={onAddBuilding}
+      />
     </div>
   );
 };

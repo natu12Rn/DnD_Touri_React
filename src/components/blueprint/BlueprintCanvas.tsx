@@ -1,24 +1,45 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import {
-  Vertex,
-  SpecialBuildingBlock,
-  MainConstructionBlock,
-} from '../../types/blueprint';
-import {
-  CONFIG,
-  math,
-  simplifyPolygon,
-} from '../../utils/geometry';
+import { Vertex, BastionBlock } from '../../types/blueprint';
+import { CONFIG, math, simplifyPolygon } from '../../utils/geometry';
+import { RotateCcw, RotateCw, Trash2 } from 'lucide-react';
 
 interface BlueprintCanvasProps {
-  mainBlock: MainConstructionBlock;
-  independentBuildings: SpecialBuildingBlock[];
+  blocks: BastionBlock[];
   selectedId: string | null;
   onSelectElement: (id: string) => void;
-  onUpdateMainPoints: (newPoints: Vertex[], updatedIntegratedBuildings: SpecialBuildingBlock[]) => void;
-  onUpdateBuildingPoints: (buildingId: string, isIntegrated: boolean, newPoints: Vertex[]) => void;
-  onIntegrateBuilding: (buildingId: string) => void;
-  onExceedMainLimit?: () => void;
+  onUpdateBlockPoints: (blockId: string, newPoints: Vertex[]) => void;
+  onDeleteBlock?: (id: string) => void;
+}
+
+/** Rotación ortogonal de 90° fija desde el mismo punto de anclaje de la estructura (evitando desplazamientos en la grilla) */
+export function rotateBlockPoints(points: Vertex[], angleDegrees: 90 | -90): Vertex[] {
+  if (points.length < 3) return points;
+  const bb = math.getBoundingBox(points);
+  const x0 = math.snap(bb.minX);
+  const y0 = math.snap(bb.minY);
+
+  const rad = (angleDegrees * Math.PI) / 180;
+  const cos = Math.round(Math.cos(rad));
+  const sin = Math.round(Math.sin(rad));
+
+  // 1. Rotación respecto al anclaje original (x0, y0)
+  const rotatedRaw = points.map((p) => {
+    const dx = p.x - x0;
+    const dy = p.y - y0;
+    const rx = dx * cos - dy * sin;
+    const ry = dx * sin + dy * cos;
+    return { x: rx, y: ry };
+  });
+
+  // 2. Ajuste exacto para que la esquina superior izquierda se mantenga idéntica en (x0, y0)
+  const rBb = math.getBoundingBox(rotatedRaw);
+  const offsetX = x0 - rBb.minX;
+  const offsetY = y0 - rBb.minY;
+
+  return rotatedRaw.map((p) => ({
+    x: math.snap(p.x + offsetX),
+    y: math.snap(p.y + offsetY),
+  }));
 }
 
 interface HoverState {
@@ -36,21 +57,26 @@ interface DragState {
   startX: number;
   startY: number;
   startPoints: Vertex[];
-  startChildrenPoints?: { id: string; points: Vertex[] }[];
+}
+
+interface RotationAnimState {
+  blockId: string;
+  startPoints: Vertex[];
+  targetPoints: Vertex[];
+  startTime: number;
+  duration: number;
 }
 
 export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
-  mainBlock,
-  independentBuildings,
+  blocks,
   selectedId,
   onSelectElement,
-  onUpdateMainPoints,
-  onUpdateBuildingPoints,
-  onIntegrateBuilding,
-  onExceedMainLimit,
+  onUpdateBlockPoints,
+  onDeleteBlock,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const animFrameRef = useRef<number | null>(null);
 
   const [hover, setHover] = useState<HoverState>({
     targetId: null,
@@ -69,13 +95,22 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
     startPoints: [],
   });
 
-  // Espacio total disponible para el núcleo (Base + Hijos + Expansiones)
-  const childCells = mainBlock.integratedBuildings.reduce(
-    (acc, b) => acc + math.calculateCellCount(b.points),
-    0
-  );
-  const expansionCells = mainBlock.expansions.reduce((acc, exp) => acc + exp.cells, 0);
-  const totalAvailableCells = mainBlock.baseCells + childCells + expansionCells;
+  const [animatingRotation, setAnimatingRotation] = useState<RotationAnimState | null>(null);
+
+  const selectedBlock = selectedId ? blocks.find((b) => b.id === selectedId) : null;
+  const selectedBb = selectedBlock ? math.getBoundingBox(selectedBlock.points) : null;
+
+  const handleRotateBlock = (angle: 90 | -90) => {
+    if (!selectedBlock || animatingRotation) return;
+    const targetPoints = rotateBlockPoints(selectedBlock.points, angle);
+    setAnimatingRotation({
+      blockId: selectedBlock.id,
+      startPoints: selectedBlock.points.map((p) => ({ ...p })),
+      targetPoints,
+      startTime: performance.now(),
+      duration: 250,
+    });
+  };
 
   /** Obtiene las coordenadas del puntero respecto al canvas */
   const getMousePos = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -88,7 +123,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
     };
   };
 
-  /** Dibuja la cuadrícula de 5ft x 5ft, polígonos, controladores centrales y anclajes fantasma */
+  /** Renderiza la grilla y los bloques del Bastión (Modelo Bottom-Up v2) */
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -111,22 +146,54 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
     }
     ctx.stroke();
 
-    /** Función de renderizado para un bloque con controladores ortogonales y fantasma */
-    const renderBlock = (
-      points: Vertex[],
-      id: string,
-      fillColor: string,
-      strokeColor: string,
-      lineWidth: number,
-      title: string,
-      cellCountText: string,
-      isSelected: boolean,
-      isIntegratedChild = false
-    ) => {
+    // 2. Renderizar Bloques Independientes
+    blocks.forEach((block) => {
+      let points = block.points;
+      if (animatingRotation && animatingRotation.blockId === block.id) {
+        const elapsed = performance.now() - animatingRotation.startTime;
+        const progress = Math.min(1, elapsed / animatingRotation.duration);
+        const ease = 1 - Math.pow(1 - progress, 3);
+        points = animatingRotation.startPoints.map((sp, idx) => {
+          const tp = animatingRotation.targetPoints[idx] || sp;
+          return {
+            x: sp.x + (tp.x - sp.x) * ease,
+            y: sp.y + (tp.y - sp.y) * ease,
+          };
+        });
+      }
       const N = points.length;
-      if (N < 3) return;
+      const isSelected = selectedId === block.id;
+      const cellCount = math.calculateCellCount(points);
+      const isSimple = math.isSimplePolygon(points);
+      const isOverlapping = math.checkBlockOverlaps(block.id, points, blocks);
 
-      // A. Relleno y Contorno del Polígono
+      // Validación Soft: Advertencia si excede casillas, se cruza o se superpone con otro bloque
+      const isSizeMismatch =
+        block.requiredCells !== undefined && cellCount !== block.requiredCells;
+      const isInvalid = isSizeMismatch || !isSimple || isOverlapping;
+
+      // Colores de relleno y contorno por tipo de bloque
+      let fillColor = 'rgba(245, 158, 11, 0.14)';
+      let strokeColor = '#f59e0b';
+
+      if (block.type === 'CORRIDOR') {
+        fillColor = isSelected ? 'rgba(100, 116, 139, 0.35)' : 'rgba(75, 85, 99, 0.25)';
+        strokeColor = isSelected ? '#94a3b8' : '#64748b';
+      } else if (block.type === 'SPECIAL_FACILITY') {
+        fillColor = isSelected ? 'rgba(56, 189, 248, 0.25)' : 'rgba(56, 189, 248, 0.14)';
+        strokeColor = block.color || (isSelected ? '#38bdf8' : '#0284c7');
+      } else {
+        fillColor = isSelected ? 'rgba(245, 158, 11, 0.22)' : 'rgba(245, 158, 11, 0.12)';
+        strokeColor = isSelected ? '#fbbf24' : '#d97706';
+      }
+
+      // Si el bloque está en estado inválido (Soft Validation), resalta el relleno en rojo
+      if (isInvalid) {
+        fillColor = 'rgba(239, 68, 68, 0.18)';
+        strokeColor = '#ef4444';
+      }
+
+      // A. Dibujar Relleno del Polígono
       ctx.beginPath();
       ctx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < N; i++) {
@@ -137,14 +204,67 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
       ctx.fillStyle = fillColor;
       ctx.fill();
 
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = lineWidth;
-      ctx.lineJoin = 'miter';
-      ctx.setLineDash(isIntegratedChild ? [6, 4] : []);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      // Si el bloque es inválido o está seleccionado, dibujar su resaltado individual
+      if (isInvalid || isSelected) {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = isSelected ? 2.5 : 1.8;
+        ctx.setLineDash(isInvalid ? [6, 6] : []);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    });
 
-      // B. Etiquetas de Medida en Pies (5 ft por cuadro)
+    // 3. Renderizar Contorno Unificado (Muros Exteriores e Interiores Compartidos)
+    const edgeCounts = math.computeGridEdgeCounts(blocks);
+    edgeCounts.forEach((count, key) => {
+      const isHorizontal = key.startsWith('H:');
+      const coords = key.substring(2).split(',').map(Number);
+      const x1 = coords[0];
+      const y1 = coords[1];
+      const x2 = isHorizontal ? x1 + CONFIG.gridSize : x1;
+      const y2 = isHorizontal ? y1 : y1 + CONFIG.gridSize;
+
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+
+      if (count === 1) {
+        // Muro Exterior Unificado (Grueso y dorado/dorado brillante)
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 3.5;
+        ctx.lineCap = 'square';
+        ctx.setLineDash([]);
+        ctx.stroke();
+      } else {
+        // Muro Interior Compartido (Delgado y tenue)
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    });
+
+    // 4. Renderizar Medidas, Etiquetas, Controles e Interacciones
+    blocks.forEach((block) => {
+      const points = block.points;
+      const N = points.length;
+      if (N < 3) return;
+
+      const isSelected = selectedId === block.id;
+      const cellCount = math.calculateCellCount(points);
+      const isSimple = math.isSimplePolygon(points);
+      const isOverlapping = math.checkBlockOverlaps(block.id, points, blocks);
+      const isSizeMismatch =
+        block.requiredCells !== undefined && cellCount !== block.requiredCells;
+      const isInvalid = isSizeMismatch || !isSimple || isOverlapping;
+
+      const bb = math.getBoundingBox(points);
+      const blockWidth = bb.maxX - bb.minX;
+      const blockHeight = bb.maxY - bb.minY;
+      const isSmallRoom = Math.min(blockWidth, blockHeight) <= CONFIG.gridSize * 2;
+
+      // B. Medidas de Paredes en Pies (5 ft por cuadro)
       ctx.font = '600 11px "Fira Code", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -157,23 +277,34 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
         const isHorizontal = Math.abs(p1.y - p2.y) < 1;
         const length = isHorizontal ? Math.abs(p2.x - p1.x) : Math.abs(p2.y - p1.y);
 
-        ctx.fillStyle = isSelected ? '#fbbf24' : CONFIG.colors.text;
-        if (isHorizontal) {
-          ctx.fillText(math.formatMeasure(length), midX, midY - 14);
-        } else {
+        // Clave de arista unitaria para verificar si es pared interior compartida
+        const edgeKey = isHorizontal
+          ? `H:${math.snap(Math.min(p1.x, p2.x))},${math.snap(p1.y)}`
+          : `V:${math.snap(p1.x)},${math.snap(Math.min(p1.y, p2.y))}`;
+        const isSharedInteriorWall = (edgeCounts.get(edgeKey) || 0) > 1;
+
+        // Renderizar medida SOLO si la habitación está seleccionada O si es una pared exterior perimetral
+        if (isSelected || !isSharedInteriorWall) {
+          ctx.fillStyle = isSelected ? '#fbbf24' : CONFIG.colors.text;
           ctx.save();
-          ctx.translate(midX - 16, midY);
-          ctx.rotate(-Math.PI / 2);
-          ctx.fillText(math.formatMeasure(length), 0, 0);
+          ctx.shadowColor = 'rgba(15, 17, 23, 0.9)';
+          ctx.shadowBlur = 4;
+          if (isHorizontal) {
+            ctx.fillText(math.formatMeasure(length), midX, midY - 14);
+          } else {
+            ctx.translate(midX - 16, midY);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(math.formatMeasure(length), 0, 0);
+          }
           ctx.restore();
         }
 
-        // C. Controladores de Pared y Anclajes Fantasma para el elemento seleccionado
+        // C. Controladores de Pared (Píldoras y Ghost Anchors) para el elemento seleccionado
         if (isSelected && length >= CONFIG.gridSize * 2) {
           const isEdgeHover =
-            hover.targetId === id && hover.type === 'edge' && hover.index === i;
+            hover.targetId === block.id && hover.type === 'edge' && hover.index === i;
 
-          // Píldora Central (Mueve la pared completa en paralelo)
+          // Píldora Central
           ctx.fillStyle = isEdgeHover ? '#f59e0b' : '#ffffff';
           ctx.strokeStyle = isEdgeHover ? '#d97706' : '#64748b';
           ctx.lineWidth = 2;
@@ -186,7 +317,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
           ctx.fill();
           ctx.stroke();
 
-          // Anclajes Fantasmas a los lados (Para seccionar por mitades si la longitud lo permite)
+          // Anclajes Fantasma (Solo si el tramo mide al menos 4 casillas / 160px)
           if (length >= CONFIG.gridSize * 4) {
             const q1X = p1.x + (p2.x - p1.x) * 0.25;
             const q1Y = p1.y + (p2.y - p1.y) * 0.25;
@@ -194,12 +325,12 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
             const q2Y = p1.y + (p2.y - p1.y) * 0.75;
 
             const isGh1Hover =
-              hover.targetId === id &&
+              hover.targetId === block.id &&
               hover.type === 'ghost' &&
               hover.index === i &&
               hover.subIndex === 0;
             const isGh2Hover =
-              hover.targetId === id &&
+              hover.targetId === block.id &&
               hover.type === 'ghost' &&
               hover.index === i &&
               hover.subIndex === 1;
@@ -224,22 +355,64 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
         }
       }
 
-      // D. Título y Contador de Cuadros en el Centro
+      // D. Etiqueta Central y Conteo de Casillas Adaptativo
       const center = math.getPolygonCenter(points);
-      ctx.fillStyle = isSelected ? '#fbbf24' : '#e2e8f0';
-      ctx.font = 'bold 13px "Cinzel", Georgia, serif';
-      ctx.fillText(title, center.x, center.y - 8);
+      ctx.save();
+      ctx.shadowColor = 'rgba(15, 17, 23, 0.95)';
+      ctx.shadowBlur = 6;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
 
-      ctx.fillStyle = isSelected ? '#fef08a' : '#94a3b8';
-      ctx.font = '11px "Fira Code", monospace';
-      ctx.fillText(cellCountText, center.x, center.y + 10);
+      let displayName = block.name;
+      if (isSmallRoom && displayName.length > 10) {
+        displayName = displayName.replace('Habitación', 'Hab.');
+      }
 
-      // E. Esquinas Manipulables Ortogonales (Manijas cuadradas con paridad a 90 grados)
+      const statusIcon = !isSimple
+        ? ' ⚠️'
+        : isOverlapping
+          ? ' ⚠️'
+          : isSizeMismatch
+            ? ' ⚠️'
+            : '';
+
+      if (isSmallRoom) {
+        // Habitación pequeña (<= 2x2 celdas): Fuente compacta y espaciado ajustado
+        ctx.fillStyle = isInvalid ? '#fca5a5' : isSelected ? '#fbbf24' : '#e2e8f0';
+        ctx.font = 'bold 10px "Cinzel", Georgia, serif';
+        ctx.fillText(`${displayName}${statusIcon}`, center.x, center.y - 6);
+
+        ctx.fillStyle = isInvalid ? '#f87171' : isSelected ? '#fef08a' : '#94a3b8';
+        ctx.font = '9px "Fira Code", monospace';
+        const reqText = block.isCostFree
+          ? `${cellCount} c.`
+          : block.requiredCells
+            ? `${cellCount}/${block.requiredCells} c.`
+            : `${cellCount} c.`;
+        ctx.fillText(reqText, center.x, center.y + 7);
+      } else {
+        // Habitación normal o grande (> 2x2 celdas)
+        ctx.fillStyle = isInvalid ? '#fca5a5' : isSelected ? '#fbbf24' : '#e2e8f0';
+        ctx.font = 'bold 12px "Cinzel", Georgia, serif';
+        ctx.fillText(`${displayName}${statusIcon}`, center.x, center.y - 8);
+
+        ctx.fillStyle = isInvalid ? '#f87171' : isSelected ? '#fef08a' : '#94a3b8';
+        ctx.font = '10px "Fira Code", monospace';
+        const reqText = block.isCostFree
+          ? `${cellCount} celdas (Costo 0)`
+          : block.requiredCells
+            ? `${cellCount}/${block.requiredCells} celdas`
+            : `${cellCount} celdas`;
+        ctx.fillText(reqText, center.x, center.y + 10);
+      }
+      ctx.restore();
+
+      // E. Esquinas Manipulables Ortogonales (Manijas cuadradas)
       if (isSelected) {
         for (let i = 0; i < N; i++) {
           const p = points[i];
           const isCornerHover =
-            hover.targetId === id && hover.type === 'corner' && hover.index === i;
+            hover.targetId === block.id && hover.type === 'corner' && hover.index === i;
           const size = isCornerHover ? CONFIG.cornerSize + 4 : CONFIG.cornerSize;
 
           ctx.fillStyle = '#ffffff';
@@ -249,104 +422,59 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
           ctx.strokeRect(p.x - size / 2, p.y - size / 2, size, size);
         }
       }
-    };
-
-    // 2. Renderizar Núcleo del Bastión (Bloque Principal)
-    const isMainSelected = selectedId === mainBlock.id;
-    const mainCells = math.calculateCellCount(mainBlock.points);
-    renderBlock(
-      mainBlock.points,
-      mainBlock.id,
-      isMainSelected ? 'rgba(245, 158, 11, 0.12)' : 'rgba(217, 119, 6, 0.08)',
-      isMainSelected ? '#f59e0b' : '#d97706',
-      isMainSelected ? 2.5 : 2,
-      mainBlock.name,
-      `${mainCells} / ${totalAvailableCells} cuadros`,
-      isMainSelected
-    );
-
-    // 3. Renderizar Edificios Hijos Integrados
-    mainBlock.integratedBuildings.forEach((child) => {
-      const isSelected = selectedId === child.id;
-      const cells = math.calculateCellCount(child.points);
-      renderBlock(
-        child.points,
-        child.id,
-        isSelected ? 'rgba(16, 185, 129, 0.22)' : 'rgba(16, 185, 129, 0.14)',
-        isSelected ? '#10b981' : 'rgba(16, 185, 129, 0.7)',
-        isSelected ? 2 : 1.5,
-        `[Hijo] ${child.name}`,
-        `${cells}/${child.maxCells} cuadros`,
-        isSelected,
-        true
-      );
     });
-
-    // 4. Renderizar Edificaciones Especiales Independientes (Flotantes)
-    independentBuildings.forEach((building) => {
-      const isSelected = selectedId === building.id;
-      const cells = math.calculateCellCount(building.points);
-      renderBlock(
-        building.points,
-        building.id,
-        isSelected ? 'rgba(56, 189, 248, 0.20)' : 'rgba(56, 189, 248, 0.10)',
-        isSelected ? '#38bdf8' : 'rgba(56, 189, 248, 0.6)',
-        isSelected ? 2 : 1.5,
-        building.name,
-        `${cells}/${building.maxCells} cuadros (Flotante)`,
-        isSelected
-      );
-    });
-  }, [mainBlock, independentBuildings, selectedId, totalAvailableCells, hover]);
+  }, [blocks, selectedId, hover, animatingRotation]);
 
   useEffect(() => {
     draw();
-  }, [draw]);
+
+    if (!animatingRotation) return;
+
+    const animate = () => {
+      draw();
+      const elapsed = performance.now() - animatingRotation.startTime;
+      if (elapsed < animatingRotation.duration) {
+        animFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        onUpdateBlockPoints(animatingRotation.blockId, animatingRotation.targetPoints);
+        setAnimatingRotation(null);
+      }
+    };
+
+    animFrameRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [draw, animatingRotation, onUpdateBlockPoints]);
 
   /** Actualiza el estado de hover para esquinas, anclajes de pared, anclajes fantasma o cuerpo */
   const updateHoverState = (pos: Vertex) => {
     if (drag.active) return;
 
-    let targetPoints: Vertex[] | null = null;
-    let targetId: string | null = null;
-
-    if (selectedId === mainBlock.id) {
-      targetPoints = mainBlock.points;
-      targetId = mainBlock.id;
-    } else {
-      const child = mainBlock.integratedBuildings.find((b) => b.id === selectedId);
-      if (child) {
-        targetPoints = child.points;
-        targetId = child.id;
-      } else {
-        const indep = independentBuildings.find((b) => b.id === selectedId);
-        if (indep) {
-          targetPoints = indep.points;
-          targetId = indep.id;
-        }
-      }
-    }
-
+    const selectedBlock = blocks.find((b) => b.id === selectedId);
     let newHover: HoverState = { targetId: null, type: null, index: -1, subIndex: -1 };
     let cursor = 'default';
 
-    if (targetPoints && targetId) {
-      const N = targetPoints.length;
+    if (selectedBlock) {
+      const points = selectedBlock.points;
+      const N = points.length;
+      const id = selectedBlock.id;
 
       // 1. Hover en Esquinas
       for (let i = 0; i < N; i++) {
-        if (math.distance(pos, targetPoints[i]) < 15) {
-          newHover = { targetId, type: 'corner', index: i, subIndex: -1 };
+        if (math.distance(pos, points[i]) < 15) {
+          newHover = { targetId: id, type: 'corner', index: i, subIndex: -1 };
           cursor = 'move';
           break;
         }
       }
 
-      // 2. Hover en Anclajes Fantasmas y Centrales
+      // 2. Hover en Anclajes Fantasmas y Píldoras Centrales
       if (newHover.type === null) {
         for (let i = 0; i < N; i++) {
-          const p1 = targetPoints[i];
-          const p2 = targetPoints[(i + 1) % N];
+          const p1 = points[i];
+          const p2 = points[(i + 1) % N];
           const isHorizontal = Math.abs(p1.y - p2.y) < 1;
           const length = isHorizontal ? Math.abs(p2.x - p1.x) : Math.abs(p2.y - p1.y);
 
@@ -355,7 +483,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
             const q1X = p1.x + (p2.x - p1.x) * 0.25;
             const q1Y = p1.y + (p2.y - p1.y) * 0.25;
             if (math.distance(pos, { x: q1X, y: q1Y }) < 14) {
-              newHover = { targetId, type: 'ghost', index: i, subIndex: 0 };
+              newHover = { targetId: id, type: 'ghost', index: i, subIndex: 0 };
               cursor = isHorizontal ? 'row-resize' : 'col-resize';
               break;
             }
@@ -363,7 +491,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
             const q2X = p1.x + (p2.x - p1.x) * 0.75;
             const q2Y = p1.y + (p2.y - p1.y) * 0.75;
             if (math.distance(pos, { x: q2X, y: q2Y }) < 14) {
-              newHover = { targetId, type: 'ghost', index: i, subIndex: 1 };
+              newHover = { targetId: id, type: 'ghost', index: i, subIndex: 1 };
               cursor = isHorizontal ? 'row-resize' : 'col-resize';
               break;
             }
@@ -373,7 +501,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
           const midX = (p1.x + p2.x) / 2;
           const midY = (p1.y + p2.y) / 2;
           if (math.distance(pos, { x: midX, y: midY }) < 18) {
-            newHover = { targetId, type: 'edge', index: i, subIndex: -1 };
+            newHover = { targetId: id, type: 'edge', index: i, subIndex: -1 };
             cursor = isHorizontal ? 'row-resize' : 'col-resize';
             break;
           }
@@ -396,45 +524,25 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const pos = getMousePos(e);
 
-    // 1. Si se hace clic en un anclaje fantasma (Inyección dinámica de mitades y seccionamiento)
+    // 1. Clic en Anclaje Fantasma (Inyección dinámica de mitades)
     if (hover.type === 'ghost' && hover.targetId && hover.index !== -1) {
-      let pts: Vertex[] = [];
-      let isMain = false;
-      let isIntegrated = false;
-
-      if (hover.targetId === mainBlock.id) {
-        pts = mainBlock.points.map((p) => ({ ...p }));
-        isMain = true;
-      } else {
-        const child = mainBlock.integratedBuildings.find((b) => b.id === hover.targetId);
-        if (child) {
-          pts = child.points.map((p) => ({ ...p }));
-          isIntegrated = true;
-        } else {
-          const indep = independentBuildings.find((b) => b.id === hover.targetId);
-          if (indep) pts = indep.points.map((p) => ({ ...p }));
-        }
-      }
-
-      if (pts.length >= 4) {
+      const targetBlock = blocks.find((b) => b.id === hover.targetId);
+      if (targetBlock && targetBlock.points.length >= 4) {
+        const pts = targetBlock.points.map((p) => ({ ...p }));
         const i = hover.index;
         const N = pts.length;
         const A = pts[i];
         const B = pts[(i + 1) % N];
 
-        // Punto de división exactamente a la mitad ajustado a la cuadrícula de 5ft (40px)
         const splitX = math.snap((A.x + B.x) / 2);
         const splitY = math.snap((A.y + B.y) / 2);
 
-        // Inyectar dos vértices superpuestos en el centro para dividir la pared
         const newPts: Vertex[] = [
           { x: splitX, y: splitY },
           { x: splitX, y: splitY },
         ];
 
         pts.splice(i + 1, 0, ...newPts);
-
-        // SubIndex 0 mueve segmento i, SubIndex 1 mueve nuevo segmento i + 2
         const targetEdgeIndex = hover.subIndex === 0 ? i : i + 2;
 
         setDrag({
@@ -447,94 +555,50 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
           startPoints: pts,
         });
 
-        if (isMain) {
-          onUpdateMainPoints(pts, mainBlock.integratedBuildings);
-        } else if (hover.targetId) {
-          onUpdateBuildingPoints(hover.targetId, isIntegrated, pts);
-        }
+        onUpdateBlockPoints(hover.targetId, pts);
         return;
       }
     }
 
     // 2. Clic en Esquina o Pared Central
     if ((hover.type === 'corner' || hover.type === 'edge') && hover.targetId) {
-      let pts: Vertex[] = [];
-      if (hover.targetId === mainBlock.id) {
-        pts = mainBlock.points.map((p) => ({ ...p }));
-      } else {
-        const child = mainBlock.integratedBuildings.find((b) => b.id === hover.targetId);
-        if (child) pts = child.points.map((p) => ({ ...p }));
-        else {
-          const indep = independentBuildings.find((b) => b.id === hover.targetId);
-          if (indep) pts = indep.points.map((p) => ({ ...p }));
-        }
-      }
-
-      setDrag({
-        active: true,
-        targetId: hover.targetId,
-        type: hover.type,
-        index: hover.index,
-        startX: pos.x,
-        startY: pos.y,
-        startPoints: pts,
-      });
-      return;
-    }
-
-    // 3. Clic en el Cuerpo del Bloque para moverlo completo
-    for (const child of mainBlock.integratedBuildings) {
-      if (math.isPointInPolygon(pos, child.points)) {
-        onSelectElement(child.id);
+      const targetBlock = blocks.find((b) => b.id === hover.targetId);
+      if (targetBlock) {
         setDrag({
           active: true,
-          targetId: child.id,
-          type: 'body',
-          index: -1,
+          targetId: hover.targetId,
+          type: hover.type,
+          index: hover.index,
           startX: pos.x,
           startY: pos.y,
-          startPoints: child.points.map((p) => ({ ...p })),
+          startPoints: targetBlock.points.map((p) => ({ ...p })),
         });
         return;
       }
     }
 
-    for (const indep of independentBuildings) {
-      if (math.isPointInPolygon(pos, indep.points)) {
-        onSelectElement(indep.id);
+    // 3. Clic en el Cuerpo del Bloque para seleccionar/mover
+    for (const block of blocks) {
+      if (math.isPointInPolygon(pos, block.points)) {
+        onSelectElement(block.id);
         setDrag({
           active: true,
-          targetId: indep.id,
+          targetId: block.id,
           type: 'body',
           index: -1,
           startX: pos.x,
           startY: pos.y,
-          startPoints: indep.points.map((p) => ({ ...p })),
+          startPoints: block.points.map((p) => ({ ...p })),
         });
         return;
       }
     }
 
-    if (math.isPointInPolygon(pos, mainBlock.points)) {
-      onSelectElement(mainBlock.id);
-      setDrag({
-        active: true,
-        targetId: mainBlock.id,
-        type: 'body',
-        index: -1,
-        startX: pos.x,
-        startY: pos.y,
-        startPoints: mainBlock.points.map((p) => ({ ...p })),
-        startChildrenPoints: mainBlock.integratedBuildings.map((c) => ({
-          id: c.id,
-          points: c.points.map((p) => ({ ...p })),
-        })),
-      });
-      return;
-    }
+    // 4. Clic en la cuadrícula vacía: Deseleccionar cualquier estructura seleccionada
+    onSelectElement('');
   };
 
-  /** Movimiento durante el arrastre (Pointer Move) con snap estricto a 5ft x 5ft (40px) */
+  /** Movimiento durante el arrastre (Pointer Move) con snap a 5ft x 5ft (40px) */
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const pos = getMousePos(e);
 
@@ -545,11 +609,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
 
     const pts = drag.startPoints.map((p) => ({ ...p }));
     const N = pts.length;
-    const isMain = drag.targetId === mainBlock.id;
-    const isIntegrated = mainBlock.integratedBuildings.some((b) => b.id === drag.targetId);
 
     if (drag.type === 'corner' && drag.index !== -1) {
-      // Modificación Ortogonal de Esquinas a 90 grados
       const x = math.snap(pos.x);
       const y = math.snap(pos.y);
 
@@ -564,40 +625,88 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
         pts[(drag.index - 1 + N) % N].y = y;
       }
 
-      if (isMain) {
-        const newCells = math.calculateCellCount(pts);
-        if (newCells > totalAvailableCells) {
-          if (onExceedMainLimit) onExceedMainLimit();
-          return;
-        }
-        onUpdateMainPoints(pts, mainBlock.integratedBuildings);
-      } else {
-        onUpdateBuildingPoints(drag.targetId, isIntegrated, pts);
-      }
+      onUpdateBlockPoints(drag.targetId, pts);
     } else if (drag.type === 'edge' && drag.index !== -1) {
-      // Desplazamiento de Pared Completa Paralela en Cuadros de 5ft
       if (drag.index % 2 === 0) {
-        const y = math.snap(pos.y);
+        let y = math.snap(pos.y);
         pts[drag.index].y = y;
         pts[(drag.index + 1) % N].y = y;
+
+        // Auto-Acople a Paredes Vecinas: Si penetra a otro bloque, limita exactamente a la cara exterior vecina
+        if (math.checkBlockOverlaps(drag.targetId, pts, blocks)) {
+          for (const other of blocks) {
+            if (other.id === drag.targetId) continue;
+            const bb = math.getBoundingBox(other.points);
+
+            const testY1 = bb.minY;
+            const testPts1 = pts.map((p) => ({ ...p }));
+            testPts1[drag.index].y = testY1;
+            testPts1[(drag.index + 1) % N].y = testY1;
+            if (
+              !math.checkBlockOverlaps(drag.targetId, testPts1, blocks) &&
+              math.isSimplePolygon(testPts1)
+            ) {
+              pts[drag.index].y = testY1;
+              pts[(drag.index + 1) % N].y = testY1;
+              break;
+            }
+
+            const testY2 = bb.maxY;
+            const testPts2 = pts.map((p) => ({ ...p }));
+            testPts2[drag.index].y = testY2;
+            testPts2[(drag.index + 1) % N].y = testY2;
+            if (
+              !math.checkBlockOverlaps(drag.targetId, testPts2, blocks) &&
+              math.isSimplePolygon(testPts2)
+            ) {
+              pts[drag.index].y = testY2;
+              pts[(drag.index + 1) % N].y = testY2;
+              break;
+            }
+          }
+        }
       } else {
-        const x = math.snap(pos.x);
+        let x = math.snap(pos.x);
         pts[drag.index].x = x;
         pts[(drag.index + 1) % N].x = x;
+
+        // Auto-Acople a Paredes Vecinas: Si penetra a otro bloque, limita exactamente a la cara exterior vecina
+        if (math.checkBlockOverlaps(drag.targetId, pts, blocks)) {
+          for (const other of blocks) {
+            if (other.id === drag.targetId) continue;
+            const bb = math.getBoundingBox(other.points);
+
+            const testX1 = bb.minX;
+            const testPts1 = pts.map((p) => ({ ...p }));
+            testPts1[drag.index].x = testX1;
+            testPts1[(drag.index + 1) % N].x = testX1;
+            if (
+              !math.checkBlockOverlaps(drag.targetId, testPts1, blocks) &&
+              math.isSimplePolygon(testPts1)
+            ) {
+              pts[drag.index].x = testX1;
+              pts[(drag.index + 1) % N].x = testX1;
+              break;
+            }
+
+            const testX2 = bb.maxX;
+            const testPts2 = pts.map((p) => ({ ...p }));
+            testPts2[drag.index].x = testX2;
+            testPts2[(drag.index + 1) % N].x = testX2;
+            if (
+              !math.checkBlockOverlaps(drag.targetId, testPts2, blocks) &&
+              math.isSimplePolygon(testPts2)
+            ) {
+              pts[drag.index].x = testX2;
+              pts[(drag.index + 1) % N].x = testX2;
+              break;
+            }
+          }
+        }
       }
 
-      if (isMain) {
-        const newCells = math.calculateCellCount(pts);
-        if (newCells > totalAvailableCells) {
-          if (onExceedMainLimit) onExceedMainLimit();
-          return;
-        }
-        onUpdateMainPoints(pts, mainBlock.integratedBuildings);
-      } else {
-        onUpdateBuildingPoints(drag.targetId, isIntegrated, pts);
-      }
+      onUpdateBlockPoints(drag.targetId, pts);
     } else if (drag.type === 'body') {
-      // Traslación del Bloque Completo en Cuadros de 5ft x 5ft
       const deltaX = math.snap(pos.x - drag.startX);
       const deltaY = math.snap(pos.y - drag.startY);
 
@@ -606,53 +715,17 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
         y: p.y + deltaY,
       }));
 
-      if (isMain) {
-        const updatedChildren = (drag.startChildrenPoints || []).map((cp) => {
-          const originalChild = mainBlock.integratedBuildings.find((c) => c.id === cp.id);
-          return {
-            ...originalChild!,
-            points: cp.points.map((p) => ({
-              x: p.x + deltaX,
-              y: p.y + deltaY,
-            })),
-          };
-        });
-        onUpdateMainPoints(movedPoints, updatedChildren);
-      } else {
-        onUpdateBuildingPoints(drag.targetId, isIntegrated, movedPoints);
-      }
+      onUpdateBlockPoints(drag.targetId, movedPoints);
     }
   };
 
-  /** Fin del arrastre (Pointer Up): Simplificación Colineal y Anclaje por Proximidad */
+  /** Fin del arrastre (Pointer Up): Simplificación de vértices colineales */
   const handlePointerUp = () => {
     if (drag.active && drag.targetId) {
-      const isMain = drag.targetId === mainBlock.id;
-      const isIntegrated = mainBlock.integratedBuildings.some((b) => b.id === drag.targetId);
-
-      if (isMain) {
-        const simplified = simplifyPolygon(mainBlock.points);
-        const cells = math.calculateCellCount(simplified);
-        if (cells <= totalAvailableCells) {
-          onUpdateMainPoints(simplified, mainBlock.integratedBuildings);
-        }
-      } else {
-        const target = isIntegrated
-          ? mainBlock.integratedBuildings.find((b) => b.id === drag.targetId)
-          : independentBuildings.find((b) => b.id === drag.targetId);
-
-        if (target) {
-          const simplified = simplifyPolygon(target.points);
-          onUpdateBuildingPoints(target.id, isIntegrated, simplified);
-
-          // Si es independiente y se acerca al perímetro, integrarlo como hijo
-          if (!isIntegrated) {
-            const isNear = math.checkBlocksProximity(target.points, mainBlock.points);
-            if (isNear) {
-              onIntegrateBuilding(target.id);
-            }
-          }
-        }
+      const target = blocks.find((b) => b.id === drag.targetId);
+      if (target) {
+        const simplified = simplifyPolygon(target.points);
+        onUpdateBlockPoints(target.id, simplified);
       }
     }
 
@@ -681,6 +754,58 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
         onPointerLeave={handlePointerUp}
         className="block touch-none"
       />
+
+      {/* Menú Flotante de Acciones Rápidas (Aparece SOLO cuando la estructura está estática) */}
+      {selectedBlock && selectedBb && !drag.active && (
+        <div
+          style={{
+            position: 'absolute',
+            left: `${(selectedBb.minX + selectedBb.maxX) / 2}px`,
+            top: `${selectedBb.minY - 14}px`,
+            transform: 'translate(-50%, -100%)',
+            pointerEvents: 'auto',
+          }}
+          className="z-40 flex items-center gap-1 p-1 rounded-2xl bg-[#161922]/95 backdrop-blur-md border border-amber-500/40 shadow-[0_4px_25px_rgba(0,0,0,0.8)] animate-in fade-in zoom-in-95 duration-150 select-none"
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRotateBlock(-90);
+            }}
+            title="Rotar 90° a la izquierda (Antihorario)"
+            className="p-1.5 rounded-xl text-slate-300 hover:text-amber-300 hover:bg-amber-500/10 transition-all active:scale-95 flex items-center gap-1"
+          >
+            <RotateCcw size={15} />
+          </button>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRotateBlock(90);
+            }}
+            title="Rotar 90° a la derecha (Horario)"
+            className="p-1.5 rounded-xl text-slate-300 hover:text-amber-300 hover:bg-amber-500/10 transition-all active:scale-95 flex items-center gap-1"
+          >
+            <RotateCw size={15} />
+          </button>
+
+          {onDeleteBlock && (
+            <>
+              <div className="w-px h-4 bg-white/10 my-auto mx-0.5" />
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteBlock(selectedBlock.id);
+                }}
+                title="Eliminar estructura seleccionada"
+                className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-all active:scale-95"
+              >
+                <Trash2 size={15} />
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };

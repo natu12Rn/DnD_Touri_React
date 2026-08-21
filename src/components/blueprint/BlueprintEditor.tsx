@@ -4,10 +4,9 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   Vertex,
   UnifiedBastionState,
-  SpecialBuildingBlock,
+  BastionBlock,
   BuildingDefinition,
   SpaceType,
-  AppliedExpansion,
   ToastNotification,
   ToastType,
 } from '../../types/blueprint';
@@ -19,7 +18,9 @@ import {
   CONFIG,
   EXPANSIONS_CATALOG,
   createInitialPointsForSpace,
+  createCorridorPoints,
   math,
+  formatEO,
 } from '../../utils/geometry';
 import { X, Trash2, Calendar, FilePlus, FolderKanban, Check } from 'lucide-react';
 
@@ -35,19 +36,21 @@ interface BlueprintRecordBackend {
 const DEFAULT_START_POS = { x: 200, y: 160 };
 
 const INITIAL_BASTION_STATE: UnifiedBastionState = {
+  version: 2,
   name: 'Base Principal',
   gridSizeFt: CONFIG.feetPerCell,
-  mainBlock: {
-    id: 'main_core',
-    name: 'Núcleo del Bastión',
-    baseSpaceType: 'ESPACIOSO',
-    baseCells: 16,
-    baseCostEO: 1000,
-    points: createInitialPointsForSpace('ESPACIOSO', DEFAULT_START_POS.x, DEFAULT_START_POS.y),
-    expansions: [],
-    integratedBuildings: [],
-  },
-  independentBuildings: [],
+  blocks: [
+    {
+      id: 'room_main_core',
+      name: 'Salón Principal',
+      type: 'BASIC_ROOM',
+      points: createInitialPointsForSpace('ESPACIOSO', DEFAULT_START_POS.x, DEFAULT_START_POS.y),
+      isCostFree: false,
+      space: 'ESPACIOSO',
+      requiredCells: EXPANSIONS_CATALOG['ESPACIOSO'].additionalCells,
+      costEO: EXPANSIONS_CATALOG['ESPACIOSO'].costEO,
+    },
+  ],
 };
 
 export const BlueprintEditor: React.FC = () => {
@@ -56,7 +59,7 @@ export const BlueprintEditor: React.FC = () => {
   // Snapshot del último estado guardado para recargas contextuales
   const lastSavedSnapshotRef = useRef<UnifiedBastionState | null>(null);
 
-  const [selectedId, setSelectedId] = useState<string | null>('main_core');
+  const [selectedId, setSelectedId] = useState<string | null>('room_main_core');
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -97,316 +100,149 @@ export const BlueprintEditor: React.FC = () => {
     fetchSavedBlueprints();
   }, [fetchSavedBlueprints]);
 
-  // Espacio total disponible y cuadros actuales ocupados por el núcleo
-  const childCells = bastion.mainBlock.integratedBuildings.reduce(
-    (acc, b) => acc + math.calculateCellCount(b.points),
-    0
-  );
-  const expansionCells = bastion.mainBlock.expansions.reduce((acc, exp) => acc + exp.cells, 0);
-  const totalAvailableCells = bastion.mainBlock.baseCells + childCells + expansionCells;
-  const currentMainCells = math.calculateCellCount(bastion.mainBlock.points);
-
-  // Verificar si existen elementos asociados que impidan modificar el espacio inicial del núcleo
-  const hasAssociatedElements =
-    bastion.mainBlock.integratedBuildings.length > 0 ||
-    bastion.independentBuildings.length > 0 ||
-    bastion.mainBlock.expansions.length > 0;
-
-  /** Notificación de exceso de límite de espacio del Núcleo */
-  const handleExceedMainLimit = useCallback(() => {
-    addToast('El Núcleo supera el espacio disponible.', 'warning');
-  }, [addToast]);
-
   /** Crea un nuevo plano independiente en blanco desde la Gestión de Planos */
   const handleCreateNewBlueprint = (newPlanName?: string) => {
     const name = newPlanName || `Nuevo Plano ${savedBlueprints.length + 1}`;
-    setBastion({
-      ...INITIAL_BASTION_STATE,
+    const newInitialBlock: BastionBlock = {
+      id: `room_${Date.now()}`,
+      name: 'Salón Principal',
+      type: 'BASIC_ROOM',
+      points: createInitialPointsForSpace('ESPACIOSO', DEFAULT_START_POS.x, DEFAULT_START_POS.y),
+      isCostFree: false,
+      space: 'ESPACIOSO',
+      requiredCells: EXPANSIONS_CATALOG['ESPACIOSO'].additionalCells,
+      costEO: EXPANSIONS_CATALOG['ESPACIOSO'].costEO,
+    };
+
+    const newState: UnifiedBastionState = {
+      version: 2,
       name,
+      gridSizeFt: CONFIG.feetPerCell,
+      blocks: [newInitialBlock],
       idBlueprint: undefined,
-    });
+    };
+
+    setBastion(newState);
     lastSavedSnapshotRef.current = null;
-    setSelectedId('main_core');
+    setSelectedId(newInitialBlock.id);
     setShowPlansModal(false);
     addToast('Nuevo plano creado.', 'info');
   };
 
-  /** Cambia el espacio inicial del núcleo y actualiza la representación visual en el canvas */
-  const handleChangeBaseSpaceType = (type: SpaceType) => {
-    if (hasAssociatedElements) {
-      addToast('No se puede cambiar el espacio con elementos asociados.', 'warning');
-      return;
-    }
 
-    const preset = EXPANSIONS_CATALOG[type];
-    const newPoints = createInitialPointsForSpace(type, DEFAULT_START_POS.x, DEFAULT_START_POS.y);
+  /** Agrega un Pasillo con costo 0 de celdas */
+  const handleAddCorridor = () => {
+    const count = bastion.blocks.length;
+    const offset = (count % 5) * 80;
+    const points = createCorridorPoints(320 + offset, 240 + offset, 3);
 
-    setBastion((prev) => ({
-      ...prev,
-      mainBlock: {
-        ...prev.mainBlock,
-        baseSpaceType: type,
-        baseCells: preset.additionalCells,
-        baseCostEO: preset.costEO,
-        points: newPoints,
-      },
-    }));
-
-    addToast(`Espacio del núcleo: ${preset.name}.`, 'info');
-  };
-
-  /** Incorpora una nueva edificación especial del catálogo como bloque independiente */
-  const handleAddBuilding = (building: BuildingDefinition) => {
-    const totalCount =
-      bastion.mainBlock.integratedBuildings.length + bastion.independentBuildings.length;
-    const offset = (totalCount % 4) * 60;
-    const initialPoints = createInitialPointsForSpace(
-      building.space,
-      600 + (offset % 120),
-      160 + (offset % 200)
-    );
-
-    const newBuilding: SpecialBuildingBlock = {
-      id: `special_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      parentId: null,
-      buildingId: building.id,
-      name: building.name,
-      space: building.space,
-      maxCells: building.maxCells,
-      costEO: building.costEO,
-      points: initialPoints,
-      isIntegrated: false,
+    const newCorridor: BastionBlock = {
+      id: `corridor_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name: 'Pasillo',
+      type: 'CORRIDOR',
+      points,
+      isCostFree: true,
+      costEO: 0,
     };
 
     setBastion((prev) => ({
       ...prev,
-      independentBuildings: [...prev.independentBuildings, newBuilding],
+      blocks: [...prev.blocks, newCorridor],
     }));
 
-    setSelectedId(newBuilding.id);
-    addToast(`${building.name} agregada.`, 'info');
+    setSelectedId(newCorridor.id);
+    addToast('Pasillo agregado (Costo 0).', 'info');
   };
 
-  /** Adquiere y aplica una expansión de espacio adicional */
-  const handleAddExpansion = (type: SpaceType) => {
-    const preset = EXPANSIONS_CATALOG[type];
-    const newExp: AppliedExpansion = {
-      id: `exp_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      type,
-      name: preset.name,
-      cells: preset.additionalCells,
+  /** Agrega una Habitación Básica */
+  const handleAddRoom = (spaceType: SpaceType = 'ESPACIOSO') => {
+    const count = bastion.blocks.length;
+    const offset = (count % 5) * 80;
+    const preset = EXPANSIONS_CATALOG[spaceType];
+    const points = createInitialPointsForSpace(spaceType, 400 + offset, 200 + offset);
+
+    const newRoom: BastionBlock = {
+      id: `room_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name: `Habitación ${count + 1}`,
+      type: 'BASIC_ROOM',
+      points,
+      isCostFree: false,
+      space: spaceType,
+      requiredCells: preset.additionalCells,
       costEO: preset.costEO,
     };
 
     setBastion((prev) => ({
       ...prev,
-      mainBlock: {
-        ...prev.mainBlock,
-        expansions: [...prev.mainBlock.expansions, newExp],
-      },
+      blocks: [...prev.blocks, newRoom],
     }));
 
-    addToast('Expansión aplicada.', 'success');
+    setSelectedId(newRoom.id);
+    addToast(`Habitación (${preset.name} - ${formatEO(preset.costEO)}) agregada.`, 'info');
   };
 
-  /** Remueve una expansión de espacio validando el límite del Núcleo */
-  const handleRemoveExpansion = (id: string) => {
-    const targetExp = bastion.mainBlock.expansions.find((e) => e.id === id);
-    if (!targetExp) return;
+  /** Incorpora una nueva edificación especial del catálogo como bloque independiente */
+  const handleAddBuilding = (building: BuildingDefinition) => {
+    const count = bastion.blocks.length;
+    const offset = (count % 5) * 80;
+    const initialPoints = createInitialPointsForSpace(
+      building.space,
+      480 + offset,
+      160 + offset
+    );
 
-    // Validación de reducción de espacio
-    const newTotalAvailable = totalAvailableCells - targetExp.cells;
-    if (currentMainCells > newTotalAvailable) {
-      addToast('El Núcleo supera el espacio disponible.', 'warning');
-      return;
-    }
-
-    setBastion((prev) => ({
-      ...prev,
-      mainBlock: {
-        ...prev.mainBlock,
-        expansions: prev.mainBlock.expansions.filter((e) => e.id !== id),
-      },
-    }));
-    addToast('Expansión removida.', 'info');
-  };
-
-  /** Integra y anida una edificación especial como hijo interno del bloque principal */
-  const handleIntegrateBuilding = (buildingId: string) => {
-    setBastion((prev) => {
-      const target = prev.independentBuildings.find((b) => b.id === buildingId);
-      if (!target) return prev;
-
-      // Calcular posición relativa respecto al primer vértice del núcleo
-      const refPoint = prev.mainBlock.points[0] || { x: 0, y: 0 };
-      const relativePosition = {
-        x: target.points[0].x - refPoint.x,
-        y: target.points[0].y - refPoint.y,
-      };
-
-      const integratedTarget: SpecialBuildingBlock = {
-        ...target,
-        parentId: prev.mainBlock.id,
-        isIntegrated: true,
-        relativePosition,
-      };
-
-      addToast(`${target.name} integrada al Núcleo.`, 'success');
-
-      return {
-        ...prev,
-        independentBuildings: prev.independentBuildings.filter((b) => b.id !== buildingId),
-        mainBlock: {
-          ...prev.mainBlock,
-          integratedBuildings: [...prev.mainBlock.integratedBuildings, integratedTarget],
-        },
-      };
-    });
-  };
-
-  /** Desacopla una edificación del bloque principal validando el límite del Núcleo */
-  const handleDeintegrateBuilding = (buildingId: string) => {
-    const target = bastion.mainBlock.integratedBuildings.find((b) => b.id === buildingId);
-    if (!target) return;
-
-    // Validación de reducción de espacio al retirar un hijo
-    const childContribution = math.calculateCellCount(target.points);
-    const newTotalAvailable = totalAvailableCells - childContribution;
-    if (currentMainCells > newTotalAvailable) {
-      addToast('El Núcleo supera el espacio disponible.', 'warning');
-      return;
-    }
-
-    const independentTarget: SpecialBuildingBlock = {
-      ...target,
-      parentId: null,
-      isIntegrated: false,
-      relativePosition: undefined,
+    const newBuilding: BastionBlock = {
+      id: `special_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      buildingId: building.id,
+      name: building.name,
+      type: 'SPECIAL_FACILITY',
+      space: building.space,
+      requiredCells: building.maxCells,
+      costEO: building.costEO,
+      points: initialPoints,
+      isCostFree: false,
+      color: building.color,
     };
 
     setBastion((prev) => ({
       ...prev,
-      mainBlock: {
-        ...prev.mainBlock,
-        integratedBuildings: prev.mainBlock.integratedBuildings.filter((b) => b.id !== buildingId),
-      },
-      independentBuildings: [...prev.independentBuildings, independentTarget],
+      blocks: [...prev.blocks, newBuilding],
     }));
 
-    addToast(`${target.name} desacoplada como bloque independiente.`, 'warning');
+    setSelectedId(newBuilding.id);
+    addToast(`${building.name} agregada (${building.maxCells} celdas).`, 'info');
   };
 
-  /** Actualiza los puntos del bloque principal y sus hijos sincronizados */
-  const handleUpdateMainPoints = (
-    newPoints: Vertex[],
-    updatedIntegratedBuildings: SpecialBuildingBlock[]
-  ) => {
-    // Validar que los hijos no queden fuera del polígono
-    const refPoint = newPoints[0] || { x: 0, y: 0 };
 
-    const validatedChildren = updatedIntegratedBuildings.map((child) => ({
-      ...child,
-      relativePosition: {
-        x: child.points[0].x - refPoint.x,
-        y: child.points[0].y - refPoint.y,
-      },
-    }));
-
+  /** Actualiza los puntos de cualquier bloque */
+  const handleUpdateBlockPoints = (blockId: string, newPoints: Vertex[]) => {
     setBastion((prev) => ({
       ...prev,
-      mainBlock: {
-        ...prev.mainBlock,
-        points: newPoints,
-        integratedBuildings: validatedChildren,
-      },
+      blocks: prev.blocks.map((b) => (b.id === blockId ? { ...b, points: newPoints } : b)),
     }));
   };
 
-  /** Actualiza los puntos de una edificación especial (integrada o independiente) */
-  const handleUpdateBuildingPoints = (
-    buildingId: string,
-    isIntegrated: boolean,
-    newPoints: Vertex[]
-  ) => {
-    setBastion((prev) => {
-      if (isIntegrated) {
-        const refPoint = prev.mainBlock.points[0] || { x: 0, y: 0 };
-        return {
-          ...prev,
-          mainBlock: {
-            ...prev.mainBlock,
-            integratedBuildings: prev.mainBlock.integratedBuildings.map((b) =>
-              b.id === buildingId
-                ? {
-                    ...b,
-                    points: newPoints,
-                    relativePosition: {
-                      x: newPoints[0].x - refPoint.x,
-                      y: newPoints[0].y - refPoint.y,
-                    },
-                  }
-                : b
-            ),
-          },
-        };
-      } else {
-        return {
-          ...prev,
-          independentBuildings: prev.independentBuildings.map((b) =>
-            b.id === buildingId ? { ...b, points: newPoints } : b
-          ),
-        };
-      }
-    });
-  };
-
-  /** Elimina una edificación por completo */
-  const handleDeleteBuilding = (id: string, isIntegrated: boolean) => {
-    if (isIntegrated) {
-      const target = bastion.mainBlock.integratedBuildings.find((b) => b.id === id);
-      if (target) {
-        const childContribution = math.calculateCellCount(target.points);
-        const newTotalAvailable = totalAvailableCells - childContribution;
-        if (currentMainCells > newTotalAvailable) {
-          addToast('El Núcleo supera el espacio disponible.', 'warning');
-          return;
-        }
-      }
-    }
-
-    setBastion((prev) => {
-      if (isIntegrated) {
-        return {
-          ...prev,
-          mainBlock: {
-            ...prev.mainBlock,
-            integratedBuildings: prev.mainBlock.integratedBuildings.filter((b) => b.id !== id),
-          },
-        };
-      } else {
-        return {
-          ...prev,
-          independentBuildings: prev.independentBuildings.filter((b) => b.id !== id),
-        };
-      }
-    });
+  /** Elimina un bloque por completo */
+  const handleDeleteBlock = (id: string) => {
+    setBastion((prev) => ({
+      ...prev,
+      blocks: prev.blocks.filter((b) => b.id !== id),
+    }));
 
     if (selectedId === id) {
-      setSelectedId('main_core');
+      setSelectedId(null);
     }
 
-    addToast('Edificación eliminada.', 'info');
+    addToast('Estructura eliminada.', 'info');
   };
 
   /** Comportamiento contextual del Botón Reload sobre el plano activo */
   const handleReloadBastion = () => {
     if (bastion.idBlueprint && lastSavedSnapshotRef.current) {
       setBastion(JSON.parse(JSON.stringify(lastSavedSnapshotRef.current)));
-      setSelectedId('main_core');
       addToast('Proyecto recargado.', 'info');
     } else {
       setBastion({ ...INITIAL_BASTION_STATE, name: bastion.name });
-      setSelectedId('main_core');
       addToast('Proyecto recargado.', 'info');
     }
   };
@@ -416,8 +252,8 @@ export const BlueprintEditor: React.FC = () => {
     setIsSaving(true);
     try {
       const geometryJson = JSON.stringify({
-        mainBlock: bastion.mainBlock,
-        independentBuildings: bastion.independentBuildings,
+        version: 2,
+        blocks: bastion.blocks,
       });
 
       if (bastion.idBlueprint) {
@@ -448,48 +284,98 @@ export const BlueprintEditor: React.FC = () => {
       }
     } catch (err) {
       console.error('Error al guardar:', err);
-      addToast('Error al guardar.', 'error');
+      addToast('Error al guardar en la base de datos.', 'error');
     } finally {
       setIsSaving(false);
     }
   };
 
-  /** Carga y abre un plano guardado específico desde la Gestión de Planos */
+  /** Carga y abre un plano guardado específico desde la Gestión de Planos (Con soporte v1 y v2) */
   const handleOpenBlueprint = (record: BlueprintRecordBackend) => {
     try {
       const parsedData = JSON.parse(record.geometry_json);
-      const loadedSpaceType: SpaceType = parsedData.mainBlock?.baseSpaceType || 'ESPACIOSO';
-      const preset = EXPANSIONS_CATALOG[loadedSpaceType];
+      let loadedBlocks: BastionBlock[] = [];
+
+      // Soporte v2 (Bottom-Up plano)
+      if (parsedData.version === 2 && Array.isArray(parsedData.blocks)) {
+        loadedBlocks = parsedData.blocks;
+      } else {
+        // Migración dinámica v1 (Legacy Top-Down a Bottom-Up)
+        if (parsedData.mainBlock) {
+          const loadedSpaceType: SpaceType = parsedData.mainBlock.baseSpaceType || 'ESPACIOSO';
+          const preset = EXPANSIONS_CATALOG[loadedSpaceType];
+          loadedBlocks.push({
+            id: parsedData.mainBlock.id || 'main_core',
+            name: parsedData.mainBlock.name || 'Salón Principal',
+            type: 'BASIC_ROOM',
+            space: loadedSpaceType,
+            requiredCells: preset.additionalCells,
+            costEO: parsedData.mainBlock.baseCostEO || preset.costEO,
+            points: parsedData.mainBlock.points || [],
+            isCostFree: false,
+          });
+
+          if (Array.isArray(parsedData.mainBlock.integratedBuildings)) {
+            parsedData.mainBlock.integratedBuildings.forEach((child: any) => {
+              loadedBlocks.push({
+                id: child.id,
+                name: child.name,
+                type: 'SPECIAL_FACILITY',
+                buildingId: child.buildingId,
+                space: child.space,
+                requiredCells: child.maxCells,
+                costEO: child.costEO,
+                points: child.points,
+                isCostFree: false,
+              });
+            });
+          }
+        }
+
+        if (Array.isArray(parsedData.independentBuildings)) {
+          parsedData.independentBuildings.forEach((indep: any) => {
+            loadedBlocks.push({
+              id: indep.id,
+              name: indep.name,
+              type: 'SPECIAL_FACILITY',
+              buildingId: indep.buildingId,
+              space: indep.space,
+              requiredCells: indep.maxCells,
+              costEO: indep.costEO,
+              points: indep.points,
+              isCostFree: false,
+            });
+          });
+        }
+      }
+
+      // Sanitizar todos los vértices cargados ajustándolos a la grilla de 40px
+      const sanitizedBlocks = loadedBlocks.map((block) => ({
+        ...block,
+        points: block.points.map((pt) => ({
+          x: math.snap(pt.x),
+          y: math.snap(pt.y),
+        })),
+      }));
 
       const loadedBastion: UnifiedBastionState = {
+        version: 2,
         idBlueprint: record.id_blueprint,
         name: record.name,
         gridSizeFt: record.grid_size_ft || 5,
-        mainBlock: {
-          id: parsedData.mainBlock?.id || 'main_core',
-          name: parsedData.mainBlock?.name || 'Núcleo del Bastión',
-          baseSpaceType: loadedSpaceType,
-          baseCells: parsedData.mainBlock?.baseCells || preset.additionalCells,
-          baseCostEO: parsedData.mainBlock?.baseCostEO || preset.costEO,
-          points:
-            parsedData.mainBlock?.points ||
-            createInitialPointsForSpace(loadedSpaceType, DEFAULT_START_POS.x, DEFAULT_START_POS.y),
-          expansions: parsedData.mainBlock?.expansions || [],
-          integratedBuildings: parsedData.mainBlock?.integratedBuildings || [],
-        },
-        independentBuildings: parsedData.independentBuildings || [],
+        blocks: sanitizedBlocks,
         createdAt: record.created_at,
         updatedAt: record.updated_at,
       };
 
       setBastion(loadedBastion);
       lastSavedSnapshotRef.current = JSON.parse(JSON.stringify(loadedBastion));
-      setSelectedId('main_core');
+      setSelectedId(sanitizedBlocks[0]?.id || null);
       setShowPlansModal(false);
       addToast(`Plano "${record.name}" cargado.`, 'success');
     } catch (err) {
       console.error('Error al parsear bastión:', err);
-      addToast('Error al procesar el archivo.', 'error');
+      addToast('Error al procesar el archivo guardado.', 'error');
     }
   };
 
@@ -505,24 +391,22 @@ export const BlueprintEditor: React.FC = () => {
       addToast('Plano eliminado.', 'info');
     } catch (err) {
       console.error('Error al eliminar:', err);
-      addToast('Error al eliminar.', 'error');
+      addToast('Error al eliminar de SQLite.', 'error');
     }
   };
 
   return (
     <div className="flex flex-col w-full h-full bg-[#0f1117] text-slate-100 select-none overflow-hidden font-sans">
-      {/* 1. Selector Superior de Edificaciones y Filtros de Espacio */}
+      {/* 1. Selector Superior de Edificaciones, Pasillos y Filtros */}
       <BlueprintToolbar
         bastionName={bastion.name}
         isEditingSaved={Boolean(bastion.idBlueprint)}
-        baseSpaceType={bastion.mainBlock.baseSpaceType}
-        isBaseSpaceDisabled={hasAssociatedElements}
-        onChangeBaseSpaceType={handleChangeBaseSpaceType}
         onChangeBastionName={(newName: string) =>
           setBastion((prev) => ({ ...prev, name: newName }))
         }
         onAddBuilding={handleAddBuilding}
-        onAddExpansion={handleAddExpansion}
+        onAddRoom={handleAddRoom}
+        onAddCorridor={handleAddCorridor}
         onReloadBastion={handleReloadBastion}
         onSaveBastion={handleSaveBastion}
         onOpenPlansManagement={() => {
@@ -534,27 +418,21 @@ export const BlueprintEditor: React.FC = () => {
 
       {/* 2. Área Central: Lienzo Canvas y Modal de Métricas Derecha */}
       <div className="flex-1 relative w-full h-full overflow-hidden">
-        {/* Lienzo Canvas 2D con modelo de anclajes ortogonales completos */}
+        {/* Lienzo Canvas 2D con modelo de bloques independientes y Soft Validation */}
         <BlueprintCanvas
-          mainBlock={bastion.mainBlock}
-          independentBuildings={bastion.independentBuildings}
+          blocks={bastion.blocks}
           selectedId={selectedId}
           onSelectElement={setSelectedId}
-          onUpdateMainPoints={handleUpdateMainPoints}
-          onUpdateBuildingPoints={handleUpdateBuildingPoints}
-          onIntegrateBuilding={handleIntegrateBuilding}
-          onExceedMainLimit={handleExceedMainLimit}
+          onUpdateBlockPoints={handleUpdateBlockPoints}
+          onDeleteBlock={handleDeleteBlock}
         />
 
         {/* Modal / Panel de Información en la Parte Derecha */}
         <BastionMetricsModal
-          mainBlock={bastion.mainBlock}
-          independentBuildings={bastion.independentBuildings}
+          blocks={bastion.blocks}
           selectedId={selectedId}
           onSelectElement={setSelectedId}
-          onDeleteBuilding={handleDeleteBuilding}
-          onDeintegrateBuilding={handleDeintegrateBuilding}
-          onRemoveExpansion={handleRemoveExpansion}
+          onDeleteBlock={handleDeleteBlock}
         />
       </div>
 
@@ -660,7 +538,7 @@ export const BlueprintEditor: React.FC = () => {
           document.body
         )}
 
-      {/* 4. Notificaciones Toasts No Invasivas en la Esquina Inferior Derecha */}
+      {/* 4. Notificaciones Toasts en la Esquina Inferior Derecha */}
       <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
     </div>
   );

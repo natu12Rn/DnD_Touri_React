@@ -7,6 +7,10 @@ import {
   Castle,
   Plus,
   FolderKanban,
+  Route,
+  Square,
+  Grid2x2,
+  Maximize2,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { BuildingDefinition, SpaceType } from '../../types/blueprint';
@@ -15,12 +19,10 @@ import { BuildingSelector } from './BuildingSelector';
 interface BlueprintToolbarProps {
   bastionName: string;
   isEditingSaved: boolean;
-  baseSpaceType: SpaceType;
-  isBaseSpaceDisabled: boolean;
-  onChangeBaseSpaceType: (type: SpaceType) => void;
   onChangeBastionName: (name: string) => void;
   onAddBuilding: (building: BuildingDefinition) => void;
-  onAddExpansion: (type: SpaceType) => void;
+  onAddRoom: (spaceType: SpaceType) => void;
+  onAddCorridor: () => void;
   onReloadBastion: () => void;
   onSaveBastion: () => Promise<void>;
   onOpenPlansManagement: () => void;
@@ -30,12 +32,10 @@ interface BlueprintToolbarProps {
 export const BlueprintToolbar: React.FC<BlueprintToolbarProps> = ({
   bastionName,
   isEditingSaved,
-  baseSpaceType,
-  isBaseSpaceDisabled,
-  onChangeBaseSpaceType,
   onChangeBastionName,
   onAddBuilding,
-  onAddExpansion,
+  onAddRoom,
+  onAddCorridor,
   onReloadBastion,
   onSaveBastion,
   onOpenPlansManagement,
@@ -46,7 +46,7 @@ export const BlueprintToolbar: React.FC<BlueprintToolbarProps> = ({
   return (
     <>
       <header className="flex flex-wrap items-center justify-between gap-4 px-6 py-3 bg-[#12161f]/95 backdrop-blur-xl border-b border-white/10 select-none z-10">
-        {/* 1. Nombre Editable del Plano Actual y Selector de Espacio Inicial */}
+        {/* 1. Nombre Editable del Plano Actual */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
             <div
@@ -65,88 +65,111 @@ export const BlueprintToolbar: React.FC<BlueprintToolbarProps> = ({
                 onChange={(e) => onChangeBastionName(e.target.value)}
                 placeholder="Nombre del Plano..."
                 title="Editar nombre del plano actual"
-                className="bg-slate-950/70 border border-white/10 rounded-xl px-3 py-1 text-sm font-serif font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none w-48"
+                className="bg-slate-950/70 border border-white/10 rounded-xl px-3 py-1 text-sm font-serif font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 focus:border-amber-400 outline-none w-44"
               />
             </div>
           </div>
 
           <div className="h-8 w-px bg-white/10" />
 
-          {/* Selector del Espacio Inicial del Núcleo */}
-          <div className="flex flex-col">
-            <span className="text-[9px] font-mono uppercase text-amber-400/90 font-semibold">
-              Espacio Núcleo:
-            </span>
-            <select
-              value={baseSpaceType}
-              disabled={isBaseSpaceDisabled}
-              onChange={(e) => onChangeBaseSpaceType(e.target.value as SpaceType)}
-              title={
-                isBaseSpaceDisabled
-                  ? 'No se puede cambiar el espacio con edificios o expansiones asociadas'
-                  : 'Cambiar espacio inicial del bloque principal'
-              }
-              className={`rounded-xl px-2.5 py-1 font-mono text-xs font-bold outline-none border transition-all ${
-                isBaseSpaceDisabled
-                  ? 'bg-slate-900/60 border-slate-700/50 text-slate-500 cursor-not-allowed opacity-60'
-                  : 'bg-slate-950/80 border-amber-500/40 text-amber-300 cursor-pointer hover:border-amber-400 focus:ring-1 focus:ring-amber-400'
-              }`}
-            >
-              <option value="APRETADO" className="bg-slate-900 text-sky-300">
-                Apretado (4 c. • 500 EO)
-              </option>
-              <option value="ESPACIOSO" className="bg-slate-900 text-amber-300">
-                Espaciado (16 c. • 1.000 EO)
-              </option>
-              <option value="VASTO" className="bg-slate-900 text-purple-300">
-                Vasto (36 c. • 3.000 EO)
-              </option>
-            </select>
-          </div>
-
-          <div className="h-8 w-px bg-white/10" />
-
-          {/* 2. Selector Desplegable de Edificaciones Especiales con Filtro de Espacio */}
+          {/* 2. Selector Desplegable de Edificaciones Especiales del Catálogo */}
           <BuildingSelector onAddBuilding={onAddBuilding} />
 
           <div className="h-8 w-px bg-white/10" />
 
-          {/* 3. Apartado de Expansiones Completo y Detallado */}
-          <div className="flex items-center gap-1.5 bg-slate-950/60 p-1 rounded-2xl border border-white/10">
-            <span className="text-[10px] font-mono uppercase text-sky-400 px-2 font-semibold">
-              + Expansión:
+          {/* 3. Grupo Unificado de Estructuras Básicas, Pasillos y Habitaciones con Hover Tooltips */}
+          <div className="flex items-center gap-1.5 bg-slate-950/70 p-1.5 rounded-2xl border border-white/10">
+            <span className="text-[10px] font-mono uppercase text-slate-400 px-2 font-semibold tracking-wider">
+              + Estructura:
             </span>
 
-            <button
-              onClick={() => onAddExpansion('APRETADO')}
-              title="Añade 4 cuadros adicionales al núcleo (Coste: 500 EO)"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-mono font-semibold transition-all active:scale-95 shadow-sm"
-            >
-              <Plus size={12} />
-              <span>Apretado (+4c • 500 EO)</span>
-            </button>
+            {/* Pasillo (Tránsito - Costo 0) */}
+            <div className="relative group">
+              <button
+                onClick={onAddCorridor}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600/50 text-xs font-mono font-semibold transition-all active:scale-95 shadow-sm"
+              >
+                <Plus size={12} className="text-slate-400" />
+                <Route size={14} className="text-slate-400" />
+                <span>Pasillo</span>
+              </button>
 
-            <button
-              onClick={() => onAddExpansion('ESPACIOSO')}
-              title="Añade 16 cuadros adicionales al núcleo (Coste: 1.000 EO)"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-mono font-semibold transition-all active:scale-95 shadow-sm"
-            >
-              <Plus size={12} />
-              <span>Espaciado (+16c • 1.000 EO)</span>
-            </button>
+              {/* Tooltip Flotante en Hover */}
+              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center pointer-events-none z-50 animate-in fade-in duration-150">
+                <div className="bg-[#181c27] border border-slate-600/60 rounded-xl px-3.5 py-2 shadow-2xl whitespace-nowrap text-center space-y-0.5">
+                  <div className="font-serif font-bold text-xs text-slate-200">Pasillo de Tránsito</div>
+                  <div className="font-mono text-[10px] text-slate-400">Ancho 5 ft • Conector flexible</div>
+                  <div className="font-mono text-[10px] font-bold text-emerald-400">Costo: 0 EO (0 celdas)</div>
+                </div>
+              </div>
+            </div>
 
-            <button
-              onClick={() => onAddExpansion('VASTO')}
-              title="Añade 36 cuadros adicionales al núcleo (Coste: 3.000 EO)"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-mono font-semibold transition-all active:scale-95 shadow-sm"
-            >
-              <Plus size={12} />
-              <span>Vasto (+36c • 3.000 EO)</span>
-            </button>
+            {/* Habitación Apretada (4 celdas • 10x10 ft • 500 EO) */}
+            <div className="relative group">
+              <button
+                onClick={() => onAddRoom('APRETADO')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-mono font-semibold transition-all active:scale-95 shadow-sm"
+              >
+                <Plus size={12} />
+                <Square size={13} />
+                <span>Apretado</span>
+              </button>
+
+              {/* Tooltip Flotante en Hover */}
+              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center pointer-events-none z-50 animate-in fade-in duration-150">
+                <div className="bg-[#181c27] border border-sky-500/40 rounded-xl px-3.5 py-2 shadow-2xl whitespace-nowrap text-center space-y-0.5">
+                  <div className="font-serif font-bold text-xs text-sky-300">Habitación Apretada</div>
+                  <div className="font-mono text-[10px] text-slate-300">10x10 ft • 4 celdas</div>
+                  <div className="font-mono text-[10px] font-bold text-amber-400">Coste: 500 EO</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Habitación Espaciada (16 celdas • 20x20 ft • 1.000 EO) */}
+            <div className="relative group">
+              <button
+                onClick={() => onAddRoom('ESPACIOSO')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-mono font-semibold transition-all active:scale-95 shadow-sm"
+              >
+                <Plus size={12} />
+                <Grid2x2 size={13} />
+                <span>Espaciado</span>
+              </button>
+
+              {/* Tooltip Flotante en Hover */}
+              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center pointer-events-none z-50 animate-in fade-in duration-150">
+                <div className="bg-[#181c27] border border-amber-500/40 rounded-xl px-3.5 py-2 shadow-2xl whitespace-nowrap text-center space-y-0.5">
+                  <div className="font-serif font-bold text-xs text-amber-300">Habitación Espaciada</div>
+                  <div className="font-mono text-[10px] text-slate-300">20x20 ft • 16 celdas</div>
+                  <div className="font-mono text-[10px] font-bold text-amber-400">Coste: 1.000 EO</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Habitación Vasta (36 celdas • 30x30 ft • 3.000 EO) */}
+            <div className="relative group">
+              <button
+                onClick={() => onAddRoom('VASTO')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-mono font-semibold transition-all active:scale-95 shadow-sm"
+              >
+                <Plus size={12} />
+                <Maximize2 size={13} />
+                <span>Vasto</span>
+              </button>
+
+              {/* Tooltip Flotante en Hover */}
+              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center pointer-events-none z-50 animate-in fade-in duration-150">
+                <div className="bg-[#181c27] border border-purple-500/40 rounded-xl px-3.5 py-2 shadow-2xl whitespace-nowrap text-center space-y-0.5">
+                  <div className="font-serif font-bold text-xs text-purple-300">Habitación Vasta</div>
+                  <div className="font-mono text-[10px] text-slate-300">30x30 ft • 36 celdas</div>
+                  <div className="font-mono text-[10px] font-bold text-amber-400">Coste: 3.000 EO</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* 4. Botones de Acciones Principales Convertidos a Iconos con Tooltips */}
+        {/* 4. Botones de Acciones Principales */}
         <div className="flex items-center gap-2">
           {/* Botón Ayuda */}
           <button
@@ -170,7 +193,7 @@ export const BlueprintToolbar: React.FC<BlueprintToolbarProps> = ({
             <RotateCcw size={18} />
           </button>
 
-          {/* Botón Gestión de Planos (Icono con Tooltip) */}
+          {/* Botón Gestión de Planos */}
           <button
             onClick={onOpenPlansManagement}
             title="Gestión de Planos: Crear, seleccionar y administrar planos"
@@ -179,7 +202,7 @@ export const BlueprintToolbar: React.FC<BlueprintToolbarProps> = ({
             <FolderKanban size={18} />
           </button>
 
-          {/* Botón Guardar Plano (Icono con Tooltip) */}
+          {/* Botón Guardar Plano */}
           <button
             onClick={onSaveBastion}
             disabled={isSaving}
@@ -198,7 +221,7 @@ export const BlueprintToolbar: React.FC<BlueprintToolbarProps> = ({
             <div className="bg-[#161922] border border-amber-500/40 rounded-3xl p-6 w-full max-w-lg shadow-[0_0_50px_rgba(0,0,0,0.8)] space-y-4">
               <div className="flex items-center justify-between border-b border-white/10 pb-3">
                 <h3 className="font-serif text-base font-bold text-amber-400">
-                  Guía de Planos, Expansiones y Edificaciones
+                  Guía de Planos, Estructuras y Pasillos
                 </h3>
                 <button
                   onClick={() => setShowHelpModal(false)}
@@ -211,18 +234,19 @@ export const BlueprintToolbar: React.FC<BlueprintToolbarProps> = ({
               <div className="space-y-3 text-xs text-slate-300 leading-relaxed font-sans max-h-96 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-700">
                 <div className="space-y-2 pt-1">
                   <div className="p-3 rounded-2xl bg-slate-950/60 border border-sky-500/40 space-y-1">
-                    <h5 className="font-bold text-sky-300 text-xs">1. Expansiones de Espacio</h5>
+                    <h5 className="font-bold text-sky-300 text-xs">1. Estructuras Básicas y Pasillos</h5>
                     <p className="text-[11px] text-slate-400">
-                      • <b>Apretado (+4c)</b>: 500 EO
-                      <br />• <b>Espaciado (+16c)</b>: 1.000 EO
-                      <br />• <b>Vasto (+36c)</b>: 3.000 EO
+                      • <b>Pasillo</b>: Tránsito flexible • 0 celdas (Costo 0)
+                      <br />• <b>Apretado (10x10 ft)</b>: 4 celdas • 500 EO
+                      <br />• <b>Espaciado (20x20 ft)</b>: 16 celdas • 1.000 EO
+                      <br />• <b>Vasto (30x30 ft)</b>: 36 celdas • 3.000 EO
                     </p>
                   </div>
 
                   <div className="p-3 rounded-2xl bg-slate-950/60 border border-amber-500/40 space-y-1">
                     <h5 className="font-bold text-amber-300 text-xs">2. Edificaciones Especiales</h5>
                     <p className="text-[11px] text-slate-400">
-                      38 edificaciones clasificadas por espacio (Apretado, Espaciado, Vasto) con sus costes en EO.
+                      38 edificaciones clasificadas por espacio (Apretado, Espaciado, Vasto) con sus costes oficiales en EO.
                     </p>
                   </div>
                 </div>
