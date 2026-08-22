@@ -155,6 +155,59 @@ export const math = {
     return { x: sumX / points.length, y: sumY / points.length };
   },
 
+  /** Distancia de un punto a un segmento de línea */
+  distanceToSegment: (p: Vertex, v: Vertex, w: Vertex): number => {
+    const l2 = (v.x - w.x) * (v.x - w.x) + (v.y - w.y) * (v.y - w.y);
+    if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+  },
+
+  /**
+   * Obtiene un punto interior visual garantizado dentro del polígono del bloque.
+   * Si el centroide cae dentro del polígono cerrado, lo usa.
+   * Si el centroide cae fuera (polígonos en L o U), escanea las celdas interiores
+   * para ubicar el rótulo siempre adentro de los muros del bloque.
+   */
+  getVisualInteriorCenter: (points: Vertex[]): Vertex => {
+    if (points.length === 0) return { x: 0, y: 0 };
+    if (points.length < 3) return math.getPolygonCenter(points);
+
+    const bb = math.getBoundingBox(points);
+    const centroid = math.getPolygonCenter(points);
+
+    // 1. Si el centroide está dentro del polígono, comprobar si tiene suficiente margen
+    if (math.isPointInPolygon(centroid, points)) {
+      return centroid;
+    }
+
+    // 2. Si el centroide cae fuera o en una arista, encontrar la celda interior con mayor margen
+    let bestPoint = centroid;
+    let maxClearance = -1;
+
+    for (let x = bb.minX + CONFIG.gridSize / 2; x < bb.maxX; x += CONFIG.gridSize) {
+      for (let y = bb.minY + CONFIG.gridSize / 2; y < bb.maxY; y += CONFIG.gridSize) {
+        const candidate = { x, y };
+        if (math.isPointInPolygon(candidate, points)) {
+          let minDist = Infinity;
+          for (let i = 0; i < points.length; i++) {
+            const p1 = points[i];
+            const p2 = points[(i + 1) % points.length];
+            const dist = math.distanceToSegment(candidate, p1, p2);
+            if (dist < minDist) minDist = dist;
+          }
+          if (minDist > maxClearance) {
+            maxClearance = minDist;
+            bestPoint = candidate;
+          }
+        }
+      }
+    }
+
+    return bestPoint;
+  },
+
   /** Formatea la medida en pies de D&D (múltiplos de 5 ft) */
   formatMeasure: (pixels: number): string => {
     const cells = Math.round(pixels / CONFIG.gridSize);
@@ -478,5 +531,59 @@ export function calculateBuildDays(block: {
   }
 
   return 20;
+}
+
+/**
+ * Encuentra una posición libre en la cuadrícula adyacente al bastión
+ * para evitar superposiciones al spawnear nuevas habitaciones o edificaciones.
+ */
+export function findNextAvailablePosition(
+  existingBlocks: { points: Vertex[] }[],
+  widthPx: number,
+  heightPx: number
+): Vertex {
+  if (existingBlocks.length === 0) {
+    return { x: 200, y: 160 };
+  }
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  existingBlocks.forEach((b) => {
+    const bb = math.getBoundingBox(b.points);
+    if (bb.minX < minX) minX = bb.minX;
+    if (bb.maxX > maxX) maxX = bb.maxX;
+    if (bb.minY < minY) minY = bb.minY;
+    if (bb.maxY > maxY) maxY = bb.maxY;
+  });
+
+  const gap = CONFIG.gridSize; // 1 celda de separación (40px)
+
+  // 1. Probar a la derecha
+  const candidateRight: Vertex = {
+    x: math.snap(maxX + gap),
+    y: math.snap(minY),
+  };
+
+  const testRight: Vertex[] = [
+    candidateRight,
+    { x: candidateRight.x + widthPx, y: candidateRight.y },
+    { x: candidateRight.x + widthPx, y: candidateRight.y + heightPx },
+    { x: candidateRight.x, y: candidateRight.y + heightPx },
+  ];
+
+  if (!existingBlocks.some((b) => math.doBlocksOverlap(testRight, b.points))) {
+    return candidateRight;
+  }
+
+  // 2. Probar abajo
+  const candidateBottom: Vertex = {
+    x: math.snap(minX),
+    y: math.snap(maxY + gap),
+  };
+
+  return candidateBottom;
 }
 

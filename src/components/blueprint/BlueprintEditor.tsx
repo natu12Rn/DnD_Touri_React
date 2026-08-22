@@ -19,6 +19,7 @@ import {
   EXPANSIONS_CATALOG,
   createInitialPointsForSpace,
   createCorridorPoints,
+  findNextAvailablePosition,
   math,
   formatEO,
 } from '../../utils/geometry';
@@ -146,11 +147,12 @@ export const BlueprintEditor: React.FC = () => {
   };
 
 
-  /** Agrega un Pasillo con costo 0 de celdas */
+  /** Agrega un Pasillo con costo 0 de celdas en una posición libre contigua */
   const handleAddCorridor = () => {
-    const count = bastion.blocks.length;
-    const offset = (count % 5) * 80;
-    const points = createCorridorPoints(320 + offset, 240 + offset, 3);
+    const widthPx = 3 * CONFIG.gridSize;
+    const heightPx = CONFIG.gridSize;
+    const spawnPos = findNextAvailablePosition(bastion.blocks, widthPx, heightPx);
+    const points = createCorridorPoints(spawnPos.x, spawnPos.y, 3);
 
     const newCorridor: BastionBlock = {
       id: `corridor_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -170,12 +172,14 @@ export const BlueprintEditor: React.FC = () => {
     addToast('Pasillo agregado (Costo 0).', 'info');
   };
 
-  /** Agrega una Habitación Básica */
+  /** Agrega una Habitación Básica en una posición libre contigua */
   const handleAddRoom = (spaceType: SpaceType = 'ESPACIOSO') => {
     const count = bastion.blocks.length;
-    const offset = (count % 5) * 80;
     const preset = EXPANSIONS_CATALOG[spaceType];
-    const points = createInitialPointsForSpace(spaceType, 400 + offset, 200 + offset);
+    const cellsSide = spaceType === 'APRETADO' ? 2 : spaceType === 'VASTO' ? 6 : 4;
+    const sidePx = cellsSide * CONFIG.gridSize;
+    const spawnPos = findNextAvailablePosition(bastion.blocks, sidePx, sidePx);
+    const points = createInitialPointsForSpace(spaceType, spawnPos.x, spawnPos.y);
 
     const newRoom: BastionBlock = {
       id: `room_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -197,14 +201,15 @@ export const BlueprintEditor: React.FC = () => {
     addToast(`Habitación (${preset.name} - ${formatEO(preset.costEO)}) agregada.`, 'info');
   };
 
-  /** Incorpora una nueva edificación especial del catálogo como bloque independiente */
+  /** Incorpora una nueva edificación especial del catálogo en posición contigua libre */
   const handleAddBuilding = (building: BuildingDefinition) => {
-    const count = bastion.blocks.length;
-    const offset = (count % 5) * 80;
+    const cellsSide = building.space === 'APRETADO' ? 2 : building.space === 'VASTO' ? 6 : 4;
+    const sidePx = cellsSide * CONFIG.gridSize;
+    const spawnPos = findNextAvailablePosition(bastion.blocks, sidePx, sidePx);
     const initialPoints = createInitialPointsForSpace(
       building.space,
-      480 + offset,
-      160 + offset
+      spawnPos.x,
+      spawnPos.y
     );
 
     const newBuilding: BastionBlock = {
@@ -228,6 +233,7 @@ export const BlueprintEditor: React.FC = () => {
     setSelectedId(newBuilding.id);
     addToast(`${building.name} agregada (${building.maxCells} celdas).`, 'info');
   };
+
 
 
   /** Actualiza los puntos de cualquier bloque */

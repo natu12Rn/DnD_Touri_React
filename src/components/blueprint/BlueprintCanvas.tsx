@@ -460,17 +460,14 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
         }
       }
 
-      // D. Etiqueta Central y Conteo de Casillas Adaptativo
-      const center = math.getPolygonCenter(points);
-      ctx.save();
-      ctx.shadowColor = 'rgba(15, 17, 23, 0.95)';
-      ctx.shadowBlur = 6;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      // D. Etiqueta Interior Acotada y Conteo de Casillas (Diseño Original Elegante)
+      const center = math.getVisualInteriorCenter(points);
+      const isVerySmall = Math.min(blockWidth, blockHeight) <= CONFIG.gridSize;
+      const maxTextWidth = Math.max(28, blockWidth - 10);
 
       let displayName = block.name;
-      if (isSmallRoom && displayName.length > 10) {
-        displayName = displayName.replace('Habitación', 'Hab.');
+      if (isSmallRoom && displayName.length > 12) {
+        displayName = displayName.replace('Habitación', 'Hab.').replace('Laboratorio', 'Lab.');
       }
 
       const statusIcon = !isSimple
@@ -481,11 +478,24 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
             ? ' ⚠️'
             : '';
 
-      if (isSmallRoom) {
-        // Habitación pequeña (<= 2x2 celdas): Fuente compacta y espaciado ajustado
+      const fullTitle = `${displayName}${statusIcon}`;
+
+      ctx.save();
+      ctx.shadowColor = 'rgba(15, 17, 23, 0.95)';
+      ctx.shadowBlur = 6;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      if (isVerySmall) {
+        // Bloque muy estrecho (ej. pasillo de 1 casilla)
+        ctx.fillStyle = isInvalid ? '#fca5a5' : isSelected ? '#fbbf24' : '#e2e8f0';
+        ctx.font = 'bold 9px "Cinzel", Georgia, serif';
+        ctx.fillText(fullTitle, center.x, center.y, maxTextWidth);
+      } else if (isSmallRoom) {
+        // Habitación pequeña (<= 2x2 celdas / 10x10 ft)
         ctx.fillStyle = isInvalid ? '#fca5a5' : isSelected ? '#fbbf24' : '#e2e8f0';
         ctx.font = 'bold 10px "Cinzel", Georgia, serif';
-        ctx.fillText(`${displayName}${statusIcon}`, center.x, center.y - 6);
+        ctx.fillText(fullTitle, center.x, center.y - 6, maxTextWidth);
 
         ctx.fillStyle = isInvalid ? '#f87171' : isSelected ? '#fef08a' : '#94a3b8';
         ctx.font = '9px "Fira Code", monospace';
@@ -494,12 +504,12 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
           : block.requiredCells
             ? `${cellCount}/${block.requiredCells} c.`
             : `${cellCount} c.`;
-        ctx.fillText(reqText, center.x, center.y + 7);
+        ctx.fillText(reqText, center.x, center.y + 7, maxTextWidth);
       } else {
         // Habitación normal o grande (> 2x2 celdas)
         ctx.fillStyle = isInvalid ? '#fca5a5' : isSelected ? '#fbbf24' : '#e2e8f0';
         ctx.font = 'bold 12px "Cinzel", Georgia, serif';
-        ctx.fillText(`${displayName}${statusIcon}`, center.x, center.y - 8);
+        ctx.fillText(fullTitle, center.x, center.y - 8, maxTextWidth);
 
         ctx.fillStyle = isInvalid ? '#f87171' : isSelected ? '#fef08a' : '#94a3b8';
         ctx.font = '10px "Fira Code", monospace';
@@ -508,9 +518,11 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
           : block.requiredCells
             ? `${cellCount}/${block.requiredCells} celdas`
             : `${cellCount} celdas`;
-        ctx.fillText(reqText, center.x, center.y + 10);
+        ctx.fillText(reqText, center.x, center.y + 10, maxTextWidth);
       }
       ctx.restore();
+
+
 
       // E. Esquinas Manipulables Ortogonales (Manijas cuadradas)
       if (isSelected) {

@@ -17,8 +17,12 @@ Esta habilidad permite gestionar, planificar y actualizar el estado de las tarea
    > [!IMPORTANT]
    > El agente **TIENE ESTRICTAMENTE PROHIBIDO** agregar, deducir o inventar tareas o subtareas especulativas por su cuenta en [`ROADMAP_ACTIVIDADES.md`](file:///d:/User/Documents/Programacion/DnD_Touri_React/ROADMAP_ACTIVIDADES.md).
    > **Únicamente** se registrarán las actividades pendientes que el usuario mencione o solicite explícitamente mediante el comando `\task`. Si el agente considera que una tarea complementaria es conveniente, **DEBE preguntar primero al usuario y obtener su confirmación** antes de incluirla en el documento.
-4. **Evaluación Técnica Obligatoria**: Antes de proponer o marcar cualquier actividad como completada, el agente debe evaluar minuciosamente el código, verificar la arquitectura modular y validar que las pruebas de compilación pasen con 0 errores (`pnpm tsc --noEmit` o `cargo check`).
-5. **Confirmación Obligatoria con el Usuario para Completar Tareas**:
+4. **Análisis, Cuestionamiento y Planteamiento Objetivo Previo**:
+   > [!IMPORTANT]
+   > Antes de iniciar el desarrollo o redactar el plan formal de cualquier tarea pendiente, el agente **DEBE realizar obligatoriamente un análisis previo y presentar un planteamiento conceptual al usuario**.
+   > Este análisis debe abordarse **estrictamente desde un punto de vista objetivo, cuestionando supuestos técnicos, posibles riesgos, casos límite (*edge cases*), cuellos de botella e impacto en UX/rendimiento, expresando con total franqueza su opinión técnica y recomendaciones fundamentadas** antes de redactar el `implementation_plan.md` o editar código.
+5. **Evaluación Técnica Obligatoria**: Antes de proponer o marcar cualquier actividad como completada, el agente debe evaluar minuciosamente el código, verificar la arquitectura modular y validar que las pruebas de compilación pasen con 0 errores (`pnpm tsc --noEmit` o `cargo check`).
+6. **Confirmación Obligatoria con el Usuario para Completar Tareas**:
    > [!IMPORTANT]
    > El agente **TIENE ESTRICTAMENTE PROHIBIDO** marcar una tarea como completada (`[x]`) de forma unilateral sin previa confirmación.
    > Tras evaluar técnicamente la implementación, el agente **DEBE preguntar explícitamente al usuario** si está satisfecho con el resultado antes de actualizar la casilla a `[x]`.
