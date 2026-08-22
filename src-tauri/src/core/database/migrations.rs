@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use crate::modules::database::error::DbResult;
+use crate::core::database::error::DbResult;
 
 /// Ejecuta las migraciones iniciales de la base de datos y configura los PRAGMAs de SQLite.
 /// Garantiza que las tablas del sistema y de dominio se creen de forma limpia al iniciar la aplicación.

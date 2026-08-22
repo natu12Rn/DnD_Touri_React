@@ -3,8 +3,8 @@ use std::sync::OnceLock;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 
-use crate::modules::database::error::{DbError, DbResult};
-use crate::modules::database::migrations::run_migrations;
+use crate::core::database::error::{DbError, DbResult};
+use crate::core::database::migrations::run_migrations;
 
 /// Instancia estática global Singleton para el administrador de la base de datos.
 static DB_SINGLETON: OnceLock<DbManager> = OnceLock::new();
@@ -29,14 +29,40 @@ impl DbManager {
             std::fs::create_dir_all(parent)?;
         }
 
+        let db_display_path = db_path.as_ref().display().to_string();
+
         let manager = SqliteConnectionManager::file(db_path);
         let pool = Pool::builder()
             .max_size(10) // Límite máximo de conexiones simultáneas en el pool
-            .build(manager)?;
+            .build(manager)
+            .map_err(|e| {
+                crate::log_error!(
+                    "core::database",
+                    "Fallo al construir pool SQLite para '{}' - Causa: {}",
+                    db_display_path,
+                    e
+                );
+                DbError::from(e)
+            })?;
 
         // Ejecutar migraciones en la conexión inicial
-        let conn = pool.get()?;
+        let conn = pool.get().map_err(|e| {
+            crate::log_error!(
+                "core::database",
+                "Fallo al obtener conexión inicial del pool para '{}' - Causa: {}",
+                db_display_path,
+                e
+            );
+            DbError::from(e)
+        })?;
+
         run_migrations(&conn)?;
+
+        crate::log_info!(
+            "core::database",
+            "Pool SQLite inicializado con éxito en '{}' | Modo: WAL | Conexiones máx: 10",
+            db_display_path
+        );
 
         let db_manager = DbManager { pool };
 

@@ -12,7 +12,7 @@ export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onDismis
   if (toasts.length === 0) return null;
 
   return createPortal(
-    <div className="fixed bottom-5 right-5 z-[99999] flex flex-col-reverse gap-2 max-w-xs w-auto pointer-events-none select-none">
+    <div className="fixed bottom-5 right-5 z-[99999] flex flex-col items-end gap-2 max-w-sm w-auto pointer-events-none select-none">
       {toasts.map((toast) => {
         let borderClass = 'border-amber-500/40 bg-[#161922]/95 text-slate-100 shadow-[0_4px_25px_rgba(0,0,0,0.7)]';
         let Icon = Info;

@@ -84,9 +84,11 @@ dndDesktopApp/
 │   ├── src/
 │   │   ├── lib.rs          # Punto de entrada de Tauri e inicializador del sistema
 │   │   ├── main.rs         # Ejecutable principal
-│   │   └── modules/        # 📦 Arquitectura Modular del Backend
-│   │       ├── database/   # 🗄️ Singleton de SQLite (Connection Pool, Migraciones, DbError)
-│   │       └── system/     # ⚙️ Módulo de prueba y estado del sistema
+│   │   ├── core/           # 🧰 Infraestructura transversal y herramientas generales
+│   │   │   └── database/   # 🗄️ Singleton de SQLite (Connection Pool, Migraciones, DbError)
+│   │   └── modules/        # 📦 Módulos funcionales y de dominio del negocio
+│   │       ├── blueprints/ # 📐 Módulo de planos y modelado arquitectónico 2D
+│   │       └── system/     # ⚙️ Módulo de prueba y diagnóstico del sistema
 ├── index.html              # Punto de entrada HTML
 ├── package.json            # Configuración del paquete y scripts pnpm
 ├── tsconfig.json           # Configuración de TypeScript

@@ -83,11 +83,24 @@ Tailwind colors and custom theme extensions:
   </div>
 </div>
 ```
+### Action Button Snippets (Icon-First Standard)
 
-### Action Button Snippet
+#### Botón de Icono Estándar (Predeterminado)
 ```tsx
-<button className="relative inline-flex items-center justify-center rounded-xl bg-amber-500/10 px-4 py-2 font-sans text-sm font-medium text-amber-300 border border-amber-500/30 transition-all duration-200 hover:bg-amber-500/20 hover:border-amber-400 hover:shadow-[0_0_15px_rgba(212,175,55,0.3)] active:scale-95">
-  Roll Action
+<button
+  onClick={handleAction}
+  title="Descripción de la acción"
+  className="p-2 rounded-xl text-slate-300 hover:text-amber-300 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 transition-all duration-200 active:scale-95 flex items-center justify-center"
+>
+  <RotateCcw size={16} />
+</button>
+```
+
+#### Botón de Texto / Llamado a la Acción Principal (Excepciones autorizadas)
+```tsx
+<button className="relative inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500/10 px-4 py-2 font-sans text-sm font-medium text-amber-300 border border-amber-500/30 transition-all duration-200 hover:bg-amber-500/20 hover:border-amber-400 hover:shadow-[0_0_15px_rgba(212,175,55,0.3)] active:scale-95">
+  <Plus size={16} />
+  <span>Crear Nuevo Plano</span>
 </button>
 ```
 
@@ -110,10 +123,62 @@ Tailwind colors and custom theme extensions:
 
 ---
 
-## 8. Toast Notifications Placement & Design Standards
+## 8. Toast Notifications Placement & Design Standards (Regla Estricta)
 
-- **Ubicación No Invasiva**: Las notificaciones Toast deben posicionarse estrictamente en esquinas libres de la interfaz (esquina inferior derecha `bottom-5 right-5` o inferior izquierda `bottom-5 left-5`), garantizando que **jamás se superpongan a menús superiores, selectores desplegables, modales de métricas o paneles de interacción activa**.
+- **Límite Máximo Anti-Spam (MAX_TOASTS = 4)**: Toda emisión de notificaciones Toast en la aplicación debe restringirse a un máximo estricto de 4 notificaciones simultáneas activas en pantalla.
+- **Comportamiento Vertical FIFO**:
+  - Las notificaciones **más nuevas** se posicionan siempre en la base inferior (`bottom`).
+  - Las notificaciones **previas se desplazan hacia arriba** verticalmente.
+  - Al ingresar una 5.ª notificación, la superior (la más antigua) se descarta automáticamente para dar paso a la nueva en la base.
+- **Ubicación Libre de Interferencia**: Posicionamiento fijo en la esquina inferior derecha (`bottom-5 right-5` con `flex flex-col items-end gap-2` y `z-[99999]`), garantizando que jamás obstruya menús superiores, modales de métricas o paneles de diseño activos.
 - **Diseño Ultra-Compacto y Conciso**:
-  - Contenedor compacto (`px-3 py-2`, `max-w-xs`), tipografía `text-xs` y backdrop blur (`backdrop-blur-xl`).
-  - Textos breves, directos y esenciales (ej. *"Biblioteca integrada correctamente."*, *"Expansión aplicada."*, *"Cambios guardados."*).
-  - Duración breve (aproximadamente 3 segundos) con animación suave de entrada y apilamiento invertido (`flex-col-reverse`).
+  - Contenedor compacto (`px-3.5 py-2`, `max-w-sm`), tipografía `text-xs font-sans`, bordes temáticos translúcidos y backdrop blur (`backdrop-blur-xl`).
+  - Textos breves, directos y esenciales (ej. *"Biblioteca integrada correctamente."*, *"Expansión aplicada."*, *"Plano guardado en SQLite."*).
+  - Duración estándar de 3.5 segundos (`3500ms`) con botón de descarte manual `(X)`.
+
+---
+
+## 9. Frontend Component Architecture & Standards (`src/components/`)
+
+Todas las definiciones de componentes de interfaz, su diseño visual y sus patrones de interacción residen y se rigen bajo este documento.
+
+### A. Componentes del Diseñador Arquitectónico (`src/components/blueprint/`)
+- **`BlueprintCanvas` (`BlueprintCanvas.tsx`)**:
+  - **Función**: Lienzo HTML5 Canvas 2D interactivo para el diseño de bastiones y edificaciones.
+  - **Reglas de Diseño**: Viewport dinámico adaptativo con `ResizeObserver` (100% de ancho/alto del contenedor), renderizado de cuadrícula infinita de 5x5 ft (40px) y zoom centrado en el punto focal del bastión.
+  - **Interacción**: Paneo libre al arrastrar sobre fondo vacío (`cursor: grabbing`), manijas cuadradas en esquinas, píldoras centrales de pared, anclajes fantasma de inyección y menú rápido contextual proyectado para rotación (90°) y eliminación.
+- **`CanvasZoomControls` (`CanvasZoomControls.tsx`)**:
+  - **Función**: Ventana flotante de control óptico de escala del lienzo.
+  - **Ubicación**: Esquina inferior izquierda (`bottom-5 left-5 z-30`).
+  - **Componentes**: Botón Zoom Out (`-`), botón Zoom In (`+`), selector de porcentaje con menú desplegable de presets (`50%`, `75%`, `100%`, `125%`, `150%`, `200%`) y botón de recentrado al 100% (`RotateCcw`).
+- **`BlueprintToolbar` (`BlueprintToolbar.tsx`)**:
+  - **Función**: Barra superior de herramientas y gestión de planos.
+  - **Componentes**: Input renombrador del bastión, selector de edificaciones especiales, expansiones de espacio (Apretado, Espacioso, Vasto), agregador de pasillos (Costo 0), botón de guardado en SQLite y disparador del modal de gestión de planos.
+- **`BastionMetricsModal` (`BastionMetricsModal.tsx`)**:
+  - **Función**: Panel lateral colapsable para métricas del bastión.
+  - **Ubicación**: Esquina superior derecha (`top-4 right-4 z-20`).
+  - **Componentes**: Conteo de celdas utilizadas, desglose de costes en piezas de oro (EO), cálculo de días de obra, selector rápido de elementos e inspección de instalaciones especiales.
+- **`BuildingSelector` (`BuildingSelector.tsx`)**:
+  - **Función**: Selector modal/desplegable del catálogo oficial de 38 edificaciones especiales con filtros por categoría y búsqueda instantánea.
+- **`SpecialFacilityInfoModal` (`SpecialFacilityInfoModal.tsx`)**:
+  - **Función**: Modal informativo con el trasfondo, beneficios, requisitos y costes de una edificación especial seleccionada.
+
+### B. Componentes Globales de UI (`src/components/ui/`)
+- **`ToastContainer` (`ToastContainer.tsx`)**:
+  - **Función**: Contenedor global de notificaciones Toast rendered vía React Portal en `document.body`.
+  - **Estructura**: `flex flex-col items-end gap-2` anclado a `bottom-5 right-5` con soporte para variantes `success`, `error`, `warning` e `info`.
+
+---
+
+## 10. Reglas de Interacción y Manejo de Componentes Frontend
+
+1. **Separación Estricta entre Vista y Lógica Pesada**:
+   - Todo componente React se limita exclusivamente a la presentación visual, animaciones y gestión del estado de la interfaz de usuario.
+   - Las consultas a base de datos y procesamiento de archivos se delegan al backend de Rust mediante `invoke`.
+2. **Estándar de Botones Basados en Iconos (Icon-First Buttons)**:
+   - Salvo indicación explícita en contrario, **todos los botones de acción en la interfaz deben implementarse primordialmente como botones de solo icono** (`Icon-only buttons`), haciendo uso de iconos de `lucide-react` con dimensiones proporcionadas (`size={15}` o `size={16}`), padding equilibrado (`p-1.5` o `p-2`), esquinas redondeadas (`rounded-xl` o `rounded-2xl`) y atributo `title="..."` descriptivo para accesibilidad.
+3. **Control de Foco en Atajos de Teclado**:
+   - Los listeners de teclado (`keydown`) en componentes de React deben validar si el foco se encuentra en un `<input>` o `<textarea>` para no interceptar la escritura del usuario.
+4. **Anti-Redundancia en Interacciones**:
+   - Se prohíbe añadir botones secundarios redundantes en tarjetas o listas clickeables en su totalidad.
+

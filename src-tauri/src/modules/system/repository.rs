@@ -1,4 +1,4 @@
-use crate::modules::database::{DbManager, DbResult};
+use crate::core::database::{DbManager, DbResult};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -18,6 +18,12 @@ impl SystemRepository {
 
         let mut stmt = conn.prepare("SELECT value FROM system_info WHERE key = 'app_status'")?;
         let status: String = stmt.query_row([], |row| row.get(0))?;
+
+        crate::log_info!(
+            "modules::system",
+            "Diagnóstico de salud de SQLite exitoso | Clave: 'app_status' | Valor: '{}'",
+            status
+        );
 
         Ok(DbStatus {
             is_connected: true,

@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Vertex, BastionBlock } from '../../types/blueprint';
 import { CONFIG, math, simplifyPolygon } from '../../utils/geometry';
 import { RotateCcw, RotateCw, Trash2 } from 'lucide-react';
+import { CanvasZoomControls } from './CanvasZoomControls';
 
 interface BlueprintCanvasProps {
   blocks: BastionBlock[];
@@ -9,6 +10,34 @@ interface BlueprintCanvasProps {
   onSelectElement: (id: string) => void;
   onUpdateBlockPoints: (blockId: string, newPoints: Vertex[]) => void;
   onDeleteBlock?: (id: string) => void;
+}
+
+const MIN_ZOOM = 0.3;
+const MAX_ZOOM = 2.5;
+const ZOOM_STEP = 0.15;
+
+/** Calcula el punto medio del conjunto de bloques para centrar la cámara */
+function getBastionCenter(currentBlocks: BastionBlock[]): Vertex {
+  if (currentBlocks.length === 0) return { x: 280, y: 240 };
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  for (const b of currentBlocks) {
+    for (const p of b.points) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+
+  if (!isFinite(minX) || !isFinite(maxX)) return { x: 280, y: 240 };
+  return {
+    x: math.snap((minX + maxX) / 2),
+    y: math.snap((minY + maxY) / 2),
+  };
 }
 
 /** Rotación ortogonal de 90° fija desde el mismo punto de anclaje de la estructura (evitando desplazamientos en la grilla) */
@@ -59,6 +88,14 @@ interface DragState {
   startPoints: Vertex[];
 }
 
+interface PanState {
+  active: boolean;
+  startX: number;
+  startY: number;
+  startCameraX: number;
+  startCameraY: number;
+}
+
 interface RotationAnimState {
   blockId: string;
   startPoints: Vertex[];
@@ -78,6 +115,12 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number | null>(null);
 
+  // Estado del factor de escala de zoom
+  const [zoom, setZoom] = useState<number>(1.0);
+
+  // Posición de la cámara en el mundo que se ubica en el centro visible del viewport
+  const [camera, setCamera] = useState<Vertex>(() => getBastionCenter(blocks));
+
   const [hover, setHover] = useState<HoverState>({
     targetId: null,
     type: null,
@@ -95,10 +138,43 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
     startPoints: [],
   });
 
+  const [pan, setPan] = useState<PanState>({
+    active: false,
+    startX: 0,
+    startY: 0,
+    startCameraX: 280,
+    startCameraY: 240,
+  });
+
   const [animatingRotation, setAnimatingRotation] = useState<RotationAnimState | null>(null);
 
   const selectedBlock = selectedId ? blocks.find((b) => b.id === selectedId) : null;
   const selectedBb = selectedBlock ? math.getBoundingBox(selectedBlock.points) : null;
+
+  const handleZoomIn = useCallback(() => {
+    setZoom((prev) => Math.min(MAX_ZOOM, Math.round((prev + ZOOM_STEP) * 100) / 100));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom((prev) => Math.max(MIN_ZOOM, Math.round((prev - ZOOM_STEP) * 100) / 100));
+  }, []);
+
+  const handleResetZoom = useCallback(() => {
+    setZoom(1.0);
+    setCamera(getBastionCenter(blocks));
+  }, [blocks]);
+
+  const handleSetZoom = useCallback((newZoom: number) => {
+    setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom)));
+  }, []);
+
+  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.1 : -0.1;
+    setZoom((prev) => {
+      return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round((prev + delta) * 100) / 100));
+    });
+  };
 
   const handleRotateBlock = (angle: 90 | -90) => {
     if (!selectedBlock || animatingRotation) return;
@@ -112,37 +188,66 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
     });
   };
 
-  /** Obtiene las coordenadas del puntero respecto al canvas */
+  /** Obtiene las coordenadas del puntero proyectadas al plano mundial respecto al centro del viewport */
   const getMousePos = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    const screenCenterX = canvas.width / 2;
+    const screenCenterY = canvas.height / 2;
+
+    const worldX = camera.x + (screenX - screenCenterX) / zoom;
+    const worldY = camera.y + (screenY - screenCenterY) / zoom;
     return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
+      x: worldX,
+      y: worldY,
     };
   };
 
-  /** Renderiza la grilla y los bloques del Bastión (Modelo Bottom-Up v2) */
+  /** Renderiza la grilla y los bloques del Bastión centrados en el viewport visible */
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const width = canvas.width;
+    const height = canvas.height;
+    const screenCenterX = width / 2;
+    const screenCenterY = height / 2;
 
-    // 1. Cuadrícula Arquitectónica de 5 ft x 5 ft (40 px = 1 casilla)
+    ctx.clearRect(0, 0, width, height);
+
+    // Aplicar transformación óptica de zoom tomando como anclaje el centro exacto del viewport
+    ctx.save();
+    ctx.translate(screenCenterX, screenCenterY);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-camera.x, -camera.y);
+
+    // 1. Cuadrícula visible en el espacio del mundo
+    const leftWorld = camera.x - screenCenterX / zoom;
+    const rightWorld = camera.x + screenCenterX / zoom;
+    const topWorld = camera.y - screenCenterY / zoom;
+    const bottomWorld = camera.y + screenCenterY / zoom;
+
+    const startX = Math.floor(leftWorld / CONFIG.gridSize) * CONFIG.gridSize;
+    const endX = Math.ceil(rightWorld / CONFIG.gridSize) * CONFIG.gridSize;
+    const startY = Math.floor(topWorld / CONFIG.gridSize) * CONFIG.gridSize;
+    const endY = Math.ceil(bottomWorld / CONFIG.gridSize) * CONFIG.gridSize;
+
+    // Cuadrícula Arquitectónica de 5 ft x 5 ft (40 px = 1 casilla)
     ctx.strokeStyle = CONFIG.colors.grid;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let x = 0; x < canvas.width; x += CONFIG.gridSize) {
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvas.height);
+    for (let x = startX; x <= endX; x += CONFIG.gridSize) {
+      ctx.moveTo(x, topWorld);
+      ctx.lineTo(x, bottomWorld);
     }
-    for (let y = 0; y < canvas.height; y += CONFIG.gridSize) {
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvas.width, y);
+    for (let y = startY; y <= endY; y += CONFIG.gridSize) {
+      ctx.moveTo(leftWorld, y);
+      ctx.lineTo(rightWorld, y);
     }
     ctx.stroke();
 
@@ -423,7 +528,34 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
         }
       }
     });
-  }, [blocks, selectedId, hover, animatingRotation]);
+
+    // Restaurar transformación óptica de zoom
+    ctx.restore();
+  }, [blocks, selectedId, hover, animatingRotation, zoom, camera]);
+
+  // Manejo de redimensionado automático del contenedor del lienzo
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
+    const updateSize = () => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        canvas.width = Math.round(rect.width);
+        canvas.height = Math.round(rect.height);
+        draw();
+      }
+    };
+
+    updateSize();
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [draw]);
 
   useEffect(() => {
     draw();
@@ -450,7 +582,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
 
   /** Actualiza el estado de hover para esquinas, anclajes de pared, anclajes fantasma o cuerpo */
   const updateHoverState = (pos: Vertex) => {
-    if (drag.active) return;
+    if (drag.active || pan.active) return;
 
     const selectedBlock = blocks.find((b) => b.id === selectedId);
     let newHover: HoverState = { targetId: null, type: null, index: -1, subIndex: -1 };
@@ -594,12 +726,30 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
       }
     }
 
-    // 4. Clic en la cuadrícula vacía: Deseleccionar cualquier estructura seleccionada
+    // 4. Clic en la cuadrícula vacía: Deseleccionar y activar desplazamiento de cámara (Pan)
     onSelectElement('');
+    setPan({
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      startCameraX: camera.x,
+      startCameraY: camera.y,
+    });
+    if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
   };
 
   /** Movimiento durante el arrastre (Pointer Move) con snap a 5ft x 5ft (40px) */
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (pan.active) {
+      const deltaScreenX = e.clientX - pan.startX;
+      const deltaScreenY = e.clientY - pan.startY;
+      setCamera({
+        x: pan.startCameraX - deltaScreenX / zoom,
+        y: pan.startCameraY - deltaScreenY / zoom,
+      });
+      return;
+    }
+
     const pos = getMousePos(e);
 
     if (!drag.active || !drag.targetId) {
@@ -721,6 +871,16 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
 
   /** Fin del arrastre (Pointer Up): Simplificación de vértices colineales */
   const handlePointerUp = () => {
+    if (pan.active) {
+      setPan({
+        active: false,
+        startX: 0,
+        startY: 0,
+        startCameraX: 0,
+        startCameraY: 0,
+      });
+    }
+
     if (drag.active && drag.targetId) {
       const target = blocks.find((b) => b.id === drag.targetId);
       if (target) {
@@ -742,26 +902,28 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
     if (canvasRef.current) canvasRef.current.style.cursor = 'default';
   };
 
+  const canvasWidth = canvasRef.current ? canvasRef.current.width : 1600;
+  const canvasHeight = canvasRef.current ? canvasRef.current.height : 900;
+
   return (
     <div ref={containerRef} className="relative w-full h-full bg-[#0b0e14] overflow-hidden">
       <canvas
         ref={canvasRef}
-        width={2400}
-        height={1800}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
-        className="block touch-none"
+        onWheel={handleWheel}
+        className="w-full h-full block touch-none"
       />
 
       {/* Menú Flotante de Acciones Rápidas (Aparece SOLO cuando la estructura está estática) */}
-      {selectedBlock && selectedBb && !drag.active && (
+      {selectedBlock && selectedBb && !drag.active && !pan.active && (
         <div
           style={{
             position: 'absolute',
-            left: `${(selectedBb.minX + selectedBb.maxX) / 2}px`,
-            top: `${selectedBb.minY - 14}px`,
+            left: `${canvasWidth / 2 + ((selectedBb.minX + selectedBb.maxX) / 2 - camera.x) * zoom}px`,
+            top: `${canvasHeight / 2 + (selectedBb.minY - 14 - camera.y) * zoom}px`,
             transform: 'translate(-50%, -100%)',
             pointerEvents: 'auto',
           }}
@@ -806,6 +968,17 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
           )}
         </div>
       )}
+
+      {/* Ventana Flotante de Controles de Zoom en la Esquina Inferior Izquierda */}
+      <CanvasZoomControls
+        zoom={zoom}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onResetZoom={handleResetZoom}
+        onSetZoom={handleSetZoom}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
+      />
     </div>
   );
 };

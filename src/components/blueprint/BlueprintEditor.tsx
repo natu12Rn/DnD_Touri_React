@@ -23,6 +23,7 @@ import {
   formatEO,
 } from '../../utils/geometry';
 import { X, Trash2, Calendar, FilePlus, FolderKanban, Check } from 'lucide-react';
+import { logger } from '../../utils/logger';
 
 interface BlueprintRecordBackend {
   id_blueprint: number;
@@ -68,15 +69,29 @@ export const BlueprintEditor: React.FC = () => {
   const [savedBlueprints, setSavedBlueprints] = useState<BlueprintRecordBackend[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(false);
 
-  /** Emite una notificación Toast compacta y directa */
+  const MAX_TOASTS = 4;
+
+  /** Emite una notificación Toast compacta y directa (máximo 4 activas con desplazamiento vertical FIFO) */
   const addToast = useCallback((message: string, type: ToastType = 'info', title?: string) => {
     const id = `toast_${Date.now()}_${Math.random()}`;
     const newToast: ToastNotification = { id, message, type, title };
-    setToasts((prev) => [...prev, newToast]);
+
+    if (type === 'error') {
+      logger.error(`${title ? `[${title}] ` : ''}${message}`, 'ui::toast');
+    }
+
+    setToasts((prev) => {
+      // Mantiene máximo 4 elementos: al insertar la nueva al final, se descarta la más vieja del inicio
+      const updated = [...prev, newToast];
+      if (updated.length > MAX_TOASTS) {
+        return updated.slice(updated.length - MAX_TOASTS);
+      }
+      return updated;
+    });
 
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3000);
+    }, 3500);
   }, []);
 
   const handleDismissToast = (id: string) => {
@@ -90,7 +105,8 @@ export const BlueprintEditor: React.FC = () => {
       const records = await invoke<BlueprintRecordBackend[]>('list_all_blueprints');
       setSavedBlueprints(records);
     } catch (err) {
-      console.error('Error al listar bastiones:', err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      logger.error(`Fallo al listar planos desde SQLite: ${errorMsg}`, 'ui::blueprint_editor');
     } finally {
       setIsLoadingList(false);
     }
@@ -283,8 +299,12 @@ export const BlueprintEditor: React.FC = () => {
         addToast('Cambios guardados.', 'success');
       }
     } catch (err) {
-      console.error('Error al guardar:', err);
-      addToast('Error al guardar en la base de datos.', 'error');
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      logger.error(
+        `Fallo al guardar plano '${bastion.name}' (ID: ${bastion.idBlueprint ?? 'nuevo'}, bloques: ${bastion.blocks.length}) - Causa: ${errorMsg}`,
+        'ui::blueprint_editor'
+      );
+      addToast(`Error al guardar: ${errorMsg}`, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -305,7 +325,7 @@ export const BlueprintEditor: React.FC = () => {
           const loadedSpaceType: SpaceType = parsedData.mainBlock.baseSpaceType || 'ESPACIOSO';
           const preset = EXPANSIONS_CATALOG[loadedSpaceType];
           loadedBlocks.push({
-            id: parsedData.mainBlock.id || 'main_core',
+            id: parsedData.mainBlock.id || `room_${Date.now()}`,
             name: parsedData.mainBlock.name || 'Salón Principal',
             type: 'BASIC_ROOM',
             space: loadedSpaceType,
@@ -374,7 +394,11 @@ export const BlueprintEditor: React.FC = () => {
       setShowPlansModal(false);
       addToast(`Plano "${record.name}" cargado.`, 'success');
     } catch (err) {
-      console.error('Error al parsear bastión:', err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      logger.error(
+        `Fallo al parsear geometría del plano ID #${record.id_blueprint} ('${record.name}') - Causa: ${errorMsg}`,
+        'ui::blueprint_editor'
+      );
       addToast('Error al procesar el archivo guardado.', 'error');
     }
   };
@@ -383,14 +407,18 @@ export const BlueprintEditor: React.FC = () => {
   const handleDeleteBlueprint = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await invoke('delete_blueprint_by_id', { id_blueprint: id });
+      await invoke('delete_blueprint_by_id', { idBlueprint: id });
       setSavedBlueprints((prev) => prev.filter((b) => b.id_blueprint !== id));
       if (bastion.idBlueprint === id) {
         handleCreateNewBlueprint();
       }
       addToast('Plano eliminado.', 'info');
     } catch (err) {
-      console.error('Error al eliminar:', err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      logger.error(
+        `Fallo al eliminar plano ID #${id} de SQLite - Causa: ${errorMsg}`,
+        'ui::blueprint_editor'
+      );
       addToast('Error al eliminar de SQLite.', 'error');
     }
   };
