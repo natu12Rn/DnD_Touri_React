@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Actividades y Roadmap local
+ROADMAP_ACTIVIDADES.md
+*.roadmap.md
